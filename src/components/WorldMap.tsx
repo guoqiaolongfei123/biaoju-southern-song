@@ -22,7 +22,7 @@ import { layoutRouteLandmarks } from "../map/routeLandmarkLayout";
 import { layoutSettlementMarkers } from "../map/settlementMarkerLayout";
 import { layoutWeatherMarkers } from "../map/weatherMarkerLayout";
 import { politicalBorderCityIds, routeCrossesPoliticalBorder, routeOwners, splitQuadraticCurve } from "../map/politicalBorders";
-import { routeCandidateAnchorRouteId, routeCandidateCityRole, routeCandidateSeal, type MapRouteCandidate } from "../map/routeComparison";
+import { routeCandidateAnchorRouteId, routeCandidateBusinessCaption, routeCandidateCityRole, routeCandidateSeal, type MapRouteCandidate } from "../map/routeComparison";
 import { mapRoadPresentation } from "../map/roadPresentation";
 import { layoutRouteBadges, type RouteBadgePoint } from "../map/routeBadgeLayout";
 import {
@@ -960,10 +960,11 @@ export default function WorldMap({
       </div>
       {routeCandidates.length > 0 && (
         <section className="map-route-board" aria-label="候选行程地图对比">
-          <header><span>行程路签</span><small>悬停路签或右侧方案，舆图同步显路</small></header>
+          <header><span>行程路签</span><small>时日、路险、天候与旧账同看</small></header>
           <div>
             {routeCandidates.map((candidate, index) => {
               const highlighted = candidate.id === effectivePreviewId;
+              const businessCaption = routeCandidateBusinessCaption(candidate);
               return (
                 <button
                   key={candidate.id}
@@ -972,10 +973,10 @@ export default function WorldMap({
                   onMouseEnter={() => onPreviewRoute?.(candidate.id)}
                   onFocus={() => onPreviewRoute?.(candidate.id)}
                   onClick={() => onPreviewRoute?.(candidate.id)}
-                  title={`${candidate.label}：${candidate.days}日，路险${candidate.dangerLabel}，${candidate.weatherLabel ?? "沿途天候未报"}，${candidate.borderSegments ? `跨${candidate.borderSegments}处边关` : "不跨边关"}`}
+                  title={`${candidate.label}：${candidate.days}日，路险${candidate.dangerLabel}，${candidate.weatherLabel ?? "沿途天候未报"}，${candidate.borderSegments ? `跨${candidate.borderSegments}处边关` : "不跨边关"}；${candidate.business ? `${candidate.business.label}，${candidate.business.coverageLabel}，${businessCaption}` : businessCaption}`}
                 >
                   <i>{routeCandidateSeal(index)}</i>
-                  <span><b>{candidate.label}</b><small>{candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"}</small></span>
+                  <span><b>{candidate.label}</b><small>{candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"}</small>{candidate.business && <em className={`route-candidate-business business-${candidate.business.tone}`}><u>{candidate.business.seal}</u>{businessCaption}</em>}</span>
                 </button>
               );
             })}
@@ -1298,7 +1299,7 @@ export default function WorldMap({
                     const route = ROUTES.find((item) => item.id === routeId);
                     if (!route) return null;
                     const { from, to, mx, my } = routeCurve(route);
-                    return <path key={routeId} className="route-candidate-segment" d={`M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`}><title>{routeCandidateSeal(candidateIndex)}路 · {candidate.label} · {candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"}</title></path>;
+                    return <path key={routeId} className="route-candidate-segment" d={`M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`}><title>{routeCandidateSeal(candidateIndex)}路 · {candidate.label} · {candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"} · {routeCandidateBusinessCaption(candidate)}</title></path>;
                   })}
                   {anchor && (
                     <g className="route-candidate-seal" transform={`translate(${anchor.mx} ${anchor.my})`} aria-hidden="true">

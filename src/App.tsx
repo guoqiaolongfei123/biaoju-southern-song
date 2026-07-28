@@ -1306,6 +1306,7 @@ function App() {
     return routePlans.map((plan) => {
       const travel = routePlanTravelForecast(game, plan);
       const insight = routePlanInsight(game, plan);
+      const business = routePlanBusinessInsight(plan, routeBusinessById);
       return {
         id: plan.id,
         label: plan.label,
@@ -1315,9 +1316,19 @@ function App() {
         dangerLabel: travel.dangerLabel,
         borderSegments: insight.borderSegments,
         weatherLabel: travel.weatherSummary,
+        business: {
+          tone: business.tone,
+          seal: business.seal,
+          label: business.label,
+          coverageLabel: business.coverageLabel,
+          apportionedNet: business.apportionedNet,
+          familiarSegments: business.familiarSegments,
+          ledgerSegments: business.ledgerSegments,
+          segmentCount: business.segmentCount,
+        },
       };
     });
-  }, [game, routePlans]);
+  }, [game, routePlans, routeBusinessById]);
 
   const preferredRoutePreviewId = game?.phase === "planning"
     ? preferredDeparturePlanId(game, routePlans)

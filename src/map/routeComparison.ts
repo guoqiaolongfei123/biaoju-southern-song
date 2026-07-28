@@ -1,3 +1,16 @@
+import type { RoutePlanBusinessTone } from "../core/routeBusiness";
+
+export interface MapRouteBusinessReference {
+  tone: RoutePlanBusinessTone;
+  seal: string;
+  label: string;
+  coverageLabel: string;
+  apportionedNet: number;
+  familiarSegments: number;
+  ledgerSegments: number;
+  segmentCount: number;
+}
+
 export interface MapRouteCandidate {
   id: string;
   label: string;
@@ -7,6 +20,7 @@ export interface MapRouteCandidate {
   dangerLabel: string;
   borderSegments: number;
   weatherLabel?: string;
+  business?: MapRouteBusinessReference;
 }
 
 export const ROUTE_CANDIDATE_SEALS = ["壹", "贰", "叁"] as const;
@@ -50,4 +64,13 @@ export function routeCandidateCityRole(candidate: MapRouteCandidate, cityId: str
   if (index === 0) return "origin";
   if (index === candidate.cityIds.length - 1) return "destination";
   return "stopover";
+}
+
+/** A compact, honest map-slip caption; it never labels uncovered segments as profitable. */
+export function routeCandidateBusinessCaption(candidate: MapRouteCandidate): string {
+  const business = candidate.business;
+  if (!business) return "旧账未载";
+  if (business.ledgerSegments > 0) return `账${business.ledgerSegments}/${business.segmentCount} · ${business.apportionedNet >= 0 ? "+" : ""}${business.apportionedNet}两`;
+  if (business.familiarSegments > 0) return `熟${business.familiarSegments}/${business.segmentCount} · 未结`;
+  return "新路 · 无旧账";
 }
