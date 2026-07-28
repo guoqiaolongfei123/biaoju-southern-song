@@ -527,6 +527,25 @@ export interface SettlementFinance {
   netChange: number;
 }
 
+export interface BusinessRecord {
+  id: string;
+  contractId: string;
+  title: string;
+  contractKind: ContractKind;
+  fromCityId: string;
+  toCityId: string;
+  startedDay: number;
+  closedDay: number;
+  durationDays: number;
+  routeIds: string[];
+  grade: Settlement["grade"];
+  outcome: NonNullable<Settlement["outcome"]>;
+  cargoIntegrity: number;
+  sealIntact: boolean;
+  battlesWon: number;
+  finance: SettlementFinance;
+}
+
 export interface CareerState {
   claimedObjectiveIds: CareerObjectiveId[];
   endingId: CareerEndingId | null;
@@ -550,7 +569,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 25;
+  version: 26;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;
@@ -591,6 +610,7 @@ export interface GameState {
   currentEvent: TravelEvent | null;
   pendingBattle: BattleConfig | null;
   settlement: Settlement | null;
+  businessLedger: BusinessRecord[];
   news: string[];
   completedContracts: number;
   career: CareerState;

@@ -76,6 +76,12 @@ describe("驿亭收旗议约", () => {
       closingSilver: settled.silver,
       netChange: settled.silver - stopover.journey!.openingSilver!,
     });
+    expect(settled.businessLedger[0]).toMatchObject({
+      contractId: stopover.journey!.contract.id,
+      outcome: "transfer",
+      grade: "转",
+      finance: settled.settlement?.finance,
+    });
     expect(settled.completedContracts).toBe(stopover.completedContracts);
     expect(settled.silver).toBe(stopover.silver + option.tradeRevenue - option.compensation);
     expect(settled.day).toBe(stopover.day + option.delayDays);

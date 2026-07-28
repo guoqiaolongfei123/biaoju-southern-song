@@ -69,6 +69,7 @@ import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from 
 import { contactFavorTier, contactId, contactPatronProfile, createInitialContacts, settleContractContact } from "./contactContent";
 import { appendJourneyChronicle, chronicleSealForEvent, chronicleToneForChoice } from "./journeyChronicle";
 import { calculateSettlementFinance } from "./settlementFinance";
+import { appendBusinessRecord, createBusinessRecord } from "./businessLedger";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import { contractIncidentEvent } from "./contractIncidentContent";
 import {
@@ -1020,7 +1021,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 25,
+    version: 26,
     seed,
     originId,
     legacyId,
@@ -1061,6 +1062,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
     currentEvent: null,
     pendingBattle: null,
     settlement: null,
+    businessLedger: [],
     news: [...(legacyId ? [`【祖业谱牒】本局承用「${LEGACY_BOONS[legacyId].title}」：${LEGACY_BOONS[legacyId].effect}。`] : []), origin.news, "【襄阳急报】金军游骑出现在汉水北岸，京湖制置司仍称城防稳固。", "【行在邸报】钱塘潮平，临安至建康水陆商路照常通行。"],
     completedContracts: 0,
     career: { claimedObjectiveIds: [], endingId: null },
@@ -2475,6 +2477,13 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     notes,
     finance,
   };
+  const businessRecord = createBusinessRecord(
+    next.journey ?? journey,
+    settlement,
+    next.day,
+    option.id === "abandon" ? 0 : next.convoy.cargoIntegrity,
+    option.id === "abandon" ? false : next.convoy.sealIntact,
+  );
   const dispositionJourney = appendJourneyChronicle(next.journey ?? journey, {
     id: `disposition-${next.day}-${option.id}`,
     day: next.day,
@@ -2512,6 +2521,7 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     currentEvent: null,
     pendingBattle: null,
     journey: dispositionJourney,
+    businessLedger: appendBusinessRecord(next.businessLedger, businessRecord),
     settlement,
     news: [`【${destinationName}·${dispositionLabel}】${settlement.title}，本号承担 ${option.compensation} 两${option.tradeRevenue ? `，副货回银 ${option.tradeRevenue} 两` : ""}。`, ...next.news].slice(0, 6),
   };
@@ -3311,6 +3321,7 @@ function settleJourney(game: GameState): GameState {
     notes: notes.length ? notes : [contract.kind === "escort" ? "按期抵达，护送之人安然无恙" : contract.kind === "letter" ? "按期抵达，信封、暗记与内页均完好" : contract.kind === "special" ? `按特殊规程交割，${specialHandlingForContract(contract)?.name ?? "特镖"}无损` : "按期抵达，货物与封条均完好"],
     finance,
   };
+  const businessRecord = createBusinessRecord(journey, settlement, game.day, integrity, game.convoy.sealIntact);
   const arrivedJourney = appendJourneyChronicle(journey, {
     id: `arrival-${contract.id}-${game.day}`,
     day: game.day,
@@ -3332,6 +3343,7 @@ function settleJourney(game: GameState): GameState {
     relations,
     contacts: contactSettlement.contacts,
     journey: arrivedJourney,
+    businessLedger: appendBusinessRecord(game.businessLedger, businessRecord),
     cities: { ...game.cities, [contract.to]: destinationCity },
     crew: game.crew.map((member) => journey.crewIds.includes(member.id) ? { ...member, experience: member.experience + 1 } : member),
     equipmentStock: equipmentReward

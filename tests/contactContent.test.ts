@@ -29,7 +29,7 @@ describe("委托人人情", () => {
     expect(migrated[0]).toMatchObject({ name: "京湖制置司故吏", homeCityId: "xiangyang", patron: "official", favor: 14 });
     const oldSave = { ...createInitialGame(1107, "quanzhou-merchants"), version: 22, contacts: undefined };
     const hydrated = migrateSavedGame(oldSave);
-    expect(hydrated?.version).toBe(25);
+    expect(hydrated?.version).toBe(26);
     expect(hydrated?.contacts[0]).toMatchObject({ name: "四海茶行", homeCityId: "quanzhou", favor: 14 });
   });
 
@@ -109,7 +109,7 @@ describe("委托人人情", () => {
     const contract = base.contracts.find((item) => item.client === base.contacts[0].name)!;
     const negotiated = negotiateContract(base, contract.id, "higher-reward");
     const migrated = migrateSavedGame({ ...negotiated, version: 23 });
-    expect(migrated?.version).toBe(25);
+    expect(migrated?.version).toBe(26);
     expect(migrated?.contracts.find((item) => item.id === contract.id)?.negotiation).toEqual(
       negotiated.contracts.find((item) => item.id === contract.id)?.negotiation,
     );

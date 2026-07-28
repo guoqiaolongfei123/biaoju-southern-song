@@ -1,6 +1,6 @@
 import type { GameState } from "./types";
 
-export type CityWorkspaceTab = "overview" | "contracts" | "prepare" | "crew";
+export type CityWorkspaceTab = "overview" | "contracts" | "ledger" | "prepare" | "crew";
 
 export interface CityActionPriority {
   tab: CityWorkspaceTab;

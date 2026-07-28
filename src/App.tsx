@@ -100,12 +100,14 @@ import CoreCombatFocusPicker from "./components/CoreCombatFocusPicker";
 import AudioToggle from "./components/AudioToggle";
 import JourneyChronicle from "./components/JourneyChronicle";
 import SettlementFinanceLedger from "./components/SettlementFinanceLedger";
+import BusinessLedger from "./components/BusinessLedger";
 import { useGameAudio } from "./audio/useGameAudio";
 
 type LaunchState = "loading" | "title" | "setup" | "game";
 const CITY_WORKSPACE_TABS: Array<{ id: CityWorkspaceTab; seal: string; label: string; note: string }> = [
   { id: "overview", seal: "城", label: "城情", note: "局势与网点" },
   { id: "contracts", seal: "镖", label: "接镖", note: "委托与查验" },
+  { id: "ledger", seal: "账", label: "账簿", note: "收支与行历" },
   { id: "prepare", seal: "备", label: "整备", note: "人车与行装" },
   { id: "crew", seal: "人", label: "人物", note: "养成与招募" },
 ];
@@ -1502,7 +1504,7 @@ function App() {
                 </section>
                 <nav className="city-workspace-tabs" role="tablist" aria-label="城市事务分章">
                   {CITY_WORKSPACE_TABS.map((tab) => {
-                    const badge = tab.id === "overview" ? selectedEffect.seal : tab.id === "contracts" ? `${game.contracts.length}` : tab.id === "prepare" ? `${preparationIssueCount}` : captiveCrewCount ? `${captiveCrewCount}俘` : injuredCrewCount ? `${injuredCrewCount}伤` : `${game.crew.length}`;
+                    const badge = tab.id === "overview" ? selectedEffect.seal : tab.id === "contracts" ? `${game.contracts.length}` : tab.id === "ledger" ? `${game.businessLedger.length}` : tab.id === "prepare" ? `${preparationIssueCount}` : captiveCrewCount ? `${captiveCrewCount}俘` : injuredCrewCount ? `${injuredCrewCount}伤` : `${game.crew.length}`;
                     return <button key={tab.id} id={`city-tab-${tab.id}`} role="tab" aria-selected={cityWorkspace === tab.id} aria-controls={`city-pane-${tab.id}`} className={cityWorkspace === tab.id ? "is-active" : ""} onClick={() => chooseCityWorkspace(tab.id)}>
                       <i>{tab.seal}</i><span><b>{tab.label}</b><small>{tab.note}</small></span><em>{badge}</em>
                     </button>;
@@ -1702,6 +1704,9 @@ function App() {
                       </div>}
                       <footer>甲、乙、丙等交镖会分别积累 12、7、2 点人情；失镖会伤及旧交。请托后需隔七日再开口。</footer>
                     </section>
+                  </section>
+                  <section id="city-pane-ledger" role="tabpanel" aria-labelledby="city-tab-ledger" className="city-workspace-pane" hidden={cityWorkspace !== "ledger"}>
+                    <BusinessLedger game={game} />
                   </section>
                   <section id="city-pane-contracts" role="tabpanel" aria-labelledby="city-tab-contracts" className="city-workspace-pane" hidden={cityWorkspace !== "contracts"}>
                     <div className="section-rule"><span>本城镖榜 · {game.contracts.length} 份</span></div>

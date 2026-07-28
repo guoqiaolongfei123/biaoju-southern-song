@@ -21,6 +21,7 @@ import { normalizeRivalBureaus } from "./rivalContent";
 import { normalizeRouteInfluence } from "./roadPowerContent";
 import { normalizeContacts } from "./contactContent";
 import { normalizeJourneyChronicle } from "./journeyChronicle";
+import { createBusinessRecord, normalizeBusinessLedger } from "./businessLedger";
 
 const DB_NAME = "biaoju-saves";
 const STORE_NAME = "games";
@@ -28,6 +29,7 @@ const SLOT = "autosave";
 const LEGACY_SLOT = "legacy";
 
 const ROUTE_IDS = new Set(ROUTES.map((route) => route.id));
+const CITY_IDS = new Set(CITIES.map((city) => city.id));
 const DISPATCH_OUTCOMES = new Set<DeputyDispatchOutcome>(["success", "hard-won", "failed"]);
 
 function finiteNumber(value: unknown, fallback = 0): number {
@@ -109,7 +111,7 @@ export async function saveGame(game: GameState): Promise<void> {
 export function migrateSavedGame(value: unknown): GameState | null {
   if (!value || typeof value !== "object") return null;
   const saved = value as Record<string, unknown>;
-  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22 && saved.version !== 23 && saved.version !== 24 && saved.version !== 25) return null;
+  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22 && saved.version !== 23 && saved.version !== 24 && saved.version !== 25 && saved.version !== 26) return null;
   const legacy = value as unknown as GameState;
   if (!legacy.cities || !legacy.day) return null;
   const originId: OriginId = typeof saved.originId === "string" && saved.originId in ORIGINS ? saved.originId as OriginId : "linan-guild";
@@ -206,6 +208,12 @@ export function migrateSavedGame(value: unknown): GameState | null {
       ? (legacyBattle.guards as NonNullable<GameState["pendingBattle"]>["guards"]).filter((guard) => availableCrewIds.has(guard.id))
       : crewBattleGuards(crew, journey?.crewIds ?? activeCrewIds, crewEquipment, equipmentTuning),
   } as GameState["pendingBattle"] : null;
+  const settlement = legacy.settlement ? { ...legacy.settlement, compensation: legacy.settlement.compensation ?? 0 } : null;
+  let businessLedger = normalizeBusinessLedger(saved.businessLedger, CITY_IDS, ROUTE_IDS);
+  if (!businessLedger.length && settlement && journey) {
+    const currentRecord = createBusinessRecord(journey, settlement, legacy.day, legacy.convoy?.cargoIntegrity ?? 100, legacy.convoy?.sealIntact ?? true);
+    businessLedger = normalizeBusinessLedger(currentRecord ? [currentRecord] : [], CITY_IDS, ROUTE_IDS);
+  }
   const localEffect = cityStatusEffect(cities[legacy.currentCityId]);
   const initialCityReputation = createInitialCityReputation(headquartersCityId);
   const cityReputation = Object.fromEntries(CITIES.map((city) => {
@@ -249,7 +257,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
     : Math.round((typeof saved.reputation === "number" ? saved.reputation : ORIGINS[originId].reputation) * 0.5));
   return {
     ...legacy,
-    version: 25,
+    version: 26,
     originId,
     legacyId,
     jianghuReputation,
@@ -283,7 +291,8 @@ export function migrateSavedGame(value: unknown): GameState | null {
     contacts: normalizeContacts(saved.contacts, originId),
     journey,
     pendingBattle,
-    settlement: legacy.settlement ? { ...legacy.settlement, compensation: legacy.settlement.compensation ?? 0 } : null,
+    settlement,
+    businessLedger,
     routeIntel,
     offices: saved.offices && typeof saved.offices === "object"
       ? legacy.offices

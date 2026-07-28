@@ -106,7 +106,7 @@ describe("副镖头分队短镖", () => {
     const base = gameWithSixCrew(1209);
     const oldSave = { ...base, version: 24, deputyDispatches: undefined, deputyDispatchReports: undefined };
     const migratedOld = migrateSavedGame(oldSave);
-    expect(migratedOld?.version).toBe(25);
+    expect(migratedOld?.version).toBe(26);
     expect(migratedOld?.deputyDispatches).toEqual([]);
     expect(migratedOld?.deputyDispatchReports).toEqual([]);
 
