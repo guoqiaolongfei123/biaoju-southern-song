@@ -20,6 +20,7 @@ import { clampJianghuReputation } from "./jianghuContent";
 import { normalizeRivalBureaus } from "./rivalContent";
 import { normalizeRouteInfluence } from "./roadPowerContent";
 import { normalizeContacts } from "./contactContent";
+import { normalizeJourneyChronicle } from "./journeyChronicle";
 
 const DB_NAME = "biaoju-saves";
 const STORE_NAME = "games";
@@ -168,6 +169,21 @@ export function migrateSavedGame(value: unknown): GameState | null {
         ? Math.max(0, Math.min(100, typeof legacyJourney.escortHealth === "number" ? legacyJourney.escortHealth : 100))
         : undefined,
       tradeLot,
+      chronicle: (() => {
+        const normalized = normalizeJourneyChronicle(legacyJourney.chronicle);
+        if (normalized.length) return normalized;
+        const startedDay = Math.max(1, Math.floor(finiteNumber(legacyJourney.startedDay, legacy.day)));
+        return [{
+          id: `legacy-contract-${journeyContract!.id}`,
+          day: startedDay,
+          kind: "contract" as const,
+          tone: "ink" as const,
+          seal: "续",
+          title: `续行「${journeyContract!.title}」`,
+          detail: `旧档中的镖行由${cityById(journeyContract!.from).name}发往${cityById(journeyContract!.to).name}，此前细节未逐条留记。`,
+          cityId: journeyContract!.from,
+        }];
+      })(),
     } as GameState["journey"]
     : null;
   const legacyBattle = saved.pendingBattle as Record<string, unknown> | null;

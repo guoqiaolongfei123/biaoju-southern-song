@@ -97,6 +97,7 @@ import CrewEquipmentPanel from "./components/CrewEquipmentPanel";
 import LeaderProgressionPanel from "./components/LeaderProgressionPanel";
 import CoreCombatFocusPicker from "./components/CoreCombatFocusPicker";
 import AudioToggle from "./components/AudioToggle";
+import JourneyChronicle from "./components/JourneyChronicle";
 import { useGameAudio } from "./audio/useGameAudio";
 
 type LaunchState = "loading" | "title" | "setup" | "game";
@@ -2114,6 +2115,7 @@ function App() {
               </div>
               <button className="primary-button journey-button" onClick={() => setGame(advanceTravel(game))}>{journeyStance.advanceVerb} <span>→</span></button>
               <p className="button-footnote">{journeyStance.travelNote}</p>
+              <JourneyChronicle journey={game.journey} />
               <div className="journey-crew">
                 {game.journey.crewIds.map((id) => {
                   const member = game.crew.find((item) => item.id === id)!;
@@ -2253,6 +2255,7 @@ function App() {
             <span className="kicker">{game.settlement.outcome && game.settlement.outcome !== "delivery" ? "收队" : "抵达"} · {cityById(game.currentCityId).name}</span>
             <h2 id="settlement-title">{game.settlement.title}</h2>
             <p>{game.settlement.summary}</p>
+            {game.journey && <JourneyChronicle journey={game.journey} limit={5} paper />}
             <ul>{game.settlement.notes.map((note) => <li key={note}>{note}</li>)}</ul>
             {settlementEquipment && <div className={`settlement-equipment-reward rarity-${settlementEquipment.rarity ?? "fine"}`}>
               <i>{settlementEquipment.seal}</i>

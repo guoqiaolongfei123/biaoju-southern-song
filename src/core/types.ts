@@ -320,6 +320,23 @@ export interface JourneyState {
   expectedDestinationOwner?: FactionId;
   handoffChoice?: HandoffChoice;
   tradeLot?: TradeLot;
+  /** 本趟镖已经发生的关键节点；由核心规则写入，界面只负责呈现。 */
+  chronicle?: JourneyChronicleEntry[];
+}
+
+export type JourneyChronicleKind = "contract" | "departure" | "road" | "event" | "battle" | "route" | "arrival";
+export type JourneyChronicleTone = "ink" | "good" | "risk" | "danger";
+
+export interface JourneyChronicleEntry {
+  id: string;
+  day: number;
+  kind: JourneyChronicleKind;
+  tone: JourneyChronicleTone;
+  seal: string;
+  title: string;
+  detail: string;
+  routeId?: string;
+  cityId?: string;
 }
 
 export interface TradeLot {

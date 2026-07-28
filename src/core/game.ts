@@ -67,6 +67,7 @@ import { deputyBondRank } from "./deputyBondContent";
 import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusContent";
 import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
 import { contactFavorTier, contactId, contactPatronProfile, createInitialContacts, settleContractContact } from "./contactContent";
+import { appendJourneyChronicle, chronicleSealForEvent, chronicleToneForChoice } from "./journeyChronicle";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import { contractIncidentEvent } from "./contractIncidentContent";
 import {
@@ -109,6 +110,7 @@ import type {
   GameState,
   HandoffChoice,
   HorseTeamId,
+  JourneyState,
   LegacyId,
   LocalContact,
   MartialArtId,
@@ -1384,6 +1386,16 @@ export function acceptContract(game: GameState, contractId: string): GameState {
       escortHealth: contract.kind === "escort" ? 100 : undefined,
       issuerFaction: game.cities[contract.from].owner,
       expectedDestinationOwner: game.cities[contract.to].owner,
+      chronicle: [{
+        id: `contract-${contract.id}`,
+        day: game.day,
+        kind: "contract",
+        tone: contract.risk === "凶险" ? "danger" : contract.risk === "棘手" ? "risk" : "ink",
+        seal: "镖",
+        title: `受领「${contract.title}」`,
+        detail: `${contract.client}托付${contract.cargo}，由${cityById(contract.from).name}送往${cityById(contract.to).name}，限 ${contract.deadline} 日。`,
+        cityId: contract.from,
+      }],
     },
   };
 }
@@ -1447,10 +1459,19 @@ export function purchaseTradeLot(game: GameState): GameState {
   return {
     ...game,
     silver: game.silver - offer.purchasePrice,
-    journey: {
+    journey: appendJourneyChronicle({
       ...game.journey,
       tradeLot: { goodId: offer.goodId, originCityId: game.currentCityId, purchasePrice: offer.purchasePrice },
-    },
+    }, {
+      id: `trade-${game.day}-${offer.goodId}`,
+      day: game.day,
+      kind: "event",
+      tone: "ink",
+      seal: "货",
+      title: `添载${offer.name}`,
+      detail: `在${cityById(game.currentCityId).name}付本钱 ${offer.purchasePrice} 两，随主镖一同上路。`,
+      cityId: game.currentCityId,
+    }),
     news: [`【货栈添载】在${cityById(game.currentCityId).name}以 ${offer.purchasePrice} 两收下${offer.name}，随主镖一同上路。`, ...game.news].slice(0, 6),
   };
 }
@@ -1526,12 +1547,23 @@ export function chooseRoute(game: GameState, plan: RoutePlan): GameState {
   if (!ready) return game;
   const cover = travelCoverById(game.journey.coverId);
   if (game.silver < cover.cost) return game;
+  const stance = travelStanceById(game.journey.stance);
+  const path = plan.cityIds.map((cityId) => cityById(cityId).name).join("—");
   return {
     ...game,
     phase: "travel",
     silver: game.silver - cover.cost,
     news: cover.cost > 0 ? [`【行装备牒】花 ${cover.cost} 两备下「${cover.title}」，沿途须让口供、行头与镖物彼此对得上。`, ...game.news].slice(0, 6) : game.news,
-    journey: { ...game.journey, plan, crewIds: [...game.activeCrewIds], coverId: cover.id, coverBlown: false },
+    journey: appendJourneyChronicle({ ...game.journey, plan, crewIds: [...game.activeCrewIds], coverId: cover.id, coverBlown: false }, {
+      id: `departure-${game.day}-${plan.id}`,
+      day: game.day,
+      kind: "departure",
+      tone: plan.danger >= 60 ? "danger" : plan.danger >= 40 ? "risk" : "good",
+      seal: "发",
+      title: `按「${plan.label}」出旗`,
+      detail: `${path} · ${stance.title} · ${cover.title}${cover.cost ? ` ${cover.cost} 两` : ""}。`,
+      cityId: game.currentCityId,
+    }),
   };
 }
 
@@ -2247,7 +2279,16 @@ export function replanJourneyAtStopover(game: GameState, planId: string): GameSt
   };
   const replanned: GameState = {
     ...game,
-    journey: { ...journey, plan },
+    journey: appendJourneyChronicle({ ...journey, plan }, {
+      id: `replan-${game.day}-${journey.segmentIndex}-${option.plan.id}`,
+      day: game.day,
+      kind: "route",
+      tone: option.plan.danger >= 60 ? "danger" : option.plan.danger >= 40 ? "risk" : "good",
+      seal: "改",
+      title: `中途改走「${option.plan.label}」`,
+      detail: `${option.pathLabel} · 余程 ${option.travel.days} 日 · 路险${option.travel.dangerLabel}。`,
+      cityId: prefixCityIds.at(-1),
+    }),
     news: [`【中途重绘】在${cityById(prefixCityIds.at(-1)!).name}改定余程，转走「${option.plan.label}」：${option.pathLabel}。`, ...game.news].slice(0, 6),
   };
   return { ...replanned, currentEvent: createStopoverEvent(replanned) };
@@ -2401,6 +2442,20 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     reputationChange: option.reputationChange,
     notes,
   };
+  const dispositionJourney = appendJourneyChronicle(next.journey ?? journey, {
+    id: `disposition-${next.day}-${option.id}`,
+    day: next.day,
+    kind: "arrival",
+    tone: option.id === "transfer" ? "risk" : "danger",
+    seal: option.seal,
+    title: `${dispositionLabel} · ${destinationName}`,
+    detail: option.id === "transfer"
+      ? `候 ${option.delayDays} 日，由${option.rivalName}接旗续送；本号付接手费 ${option.compensation} 两。`
+      : option.id === "return"
+        ? `沿来路回走 ${option.delayDays} 日，按约赔付 ${option.compensation} 两。`
+        : `就地收旗止步，赔付 ${option.compensation} 两。`,
+    cityId: option.destinationCityId,
+  });
   next = {
     ...next,
     phase: "settlement",
@@ -2423,6 +2478,7 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     },
     currentEvent: null,
     pendingBattle: null,
+    journey: dispositionJourney,
     settlement,
     news: [`【${destinationName}·${dispositionLabel}】${settlement.title}，本号承担 ${option.compensation} 两${option.tradeRevenue ? `，副货回银 ${option.tradeRevenue} 两` : ""}。`, ...next.news].slice(0, 6),
   };
@@ -2874,6 +2930,13 @@ export function advanceTravel(game: GameState): GameState {
     { crewRoles: journeyCrew(next).map((member) => member.role), upgrades: next.convoy.upgrades },
   );
   const horseDamage = forecast.staminaShortfall > 0 ? Math.min(18, 2 + Math.ceil(forecast.staminaShortfall / 7)) : 0;
+  const segmentFrom = game.journey.plan.cityIds[game.journey.segmentIndex];
+  const segmentTo = game.journey.plan.cityIds[game.journey.segmentIndex + 1];
+  const travelConsequences = [
+    shortfall ? `缺粮 ${shortfall}` : `耗粮 ${supplyCost}`,
+    horseDamage ? `马匹伤损 ${horseDamage}` : `马力 -${forecast.staminaCost}`,
+    specialCargoDamage ? `特镖损耗 ${specialCargoDamage}%` : "",
+  ].filter(Boolean).join(" · ");
   next = {
     ...next,
     supplies: Math.max(0, next.supplies - supplyCost),
@@ -2885,13 +2948,23 @@ export function advanceTravel(game: GameState): GameState {
       horseStamina: Math.max(0, next.convoy.horseStamina - forecast.staminaCost),
       horseHp: Math.max(1, next.convoy.horseHp - horseDamage),
     },
-    journey: {
+    journey: appendJourneyChronicle({
       ...next.journey!,
       elapsedDays: next.day - next.journey!.startedDay,
       escortHealth: next.journey!.contract.kind === "escort"
         ? Math.max(0, (next.journey!.escortHealth ?? 100) - escortShortfallDamage)
         : next.journey!.escortHealth,
-    },
+    }, {
+      id: `road-${routeId}-${game.journey.segmentIndex}`,
+      day: next.day,
+      kind: "road",
+      tone: shortfall || horseDamage || specialCargoDamage ? "danger" : departureWeather.kind === "clear" ? "good" : "risk",
+      seal: route.terrain === "river" ? "舟" : route.terrain === "mountain" ? "岭" : "驿",
+      title: `行过${route.name}`,
+      detail: `${cityById(segmentFrom).name}至${cityById(segmentTo).name} · ${forecast.days} 日 · ${departureWeather.label} · ${travelConsequences}。`,
+      routeId,
+      cityId: segmentTo,
+    }),
     news: specialCargoDamage > 0
       ? [`【特镖养护】${departureWeather.label}与本段脚程使「${next.journey!.contract.cargo}」自然损耗 ${specialCargoDamage}%，现余 ${Math.max(0, next.convoy.cargoIntegrity - (vulnerableCargo ? shortfall * 5 : 0) - specialCargoDamage)}%。`, ...next.news].slice(0, 6)
       : next.news,
@@ -3196,6 +3269,16 @@ function settleJourney(game: GameState): GameState {
     reputationChange,
     notes: notes.length ? notes : [contract.kind === "escort" ? "按期抵达，护送之人安然无恙" : contract.kind === "letter" ? "按期抵达，信封、暗记与内页均完好" : contract.kind === "special" ? `按特殊规程交割，${specialHandlingForContract(contract)?.name ?? "特镖"}无损` : "按期抵达，货物与封条均完好"],
   };
+  const arrivedJourney = appendJourneyChronicle(journey, {
+    id: `arrival-${contract.id}-${game.day}`,
+    day: game.day,
+    kind: "arrival",
+    tone: grade === "甲" ? "good" : grade === "乙" ? "ink" : grade === "丙" ? "risk" : "danger",
+    seal: grade === "失镖" ? "失" : grade,
+    title: `${cityById(contract.to).name}交割 · ${grade}等`,
+    detail: `${settlement.title} · 实收 ${reward} 两${lateDays ? ` · 误限 ${lateDays} 日` : " · 如期"} · ${conditionLabel} ${integrity}%。`,
+    cityId: contract.to,
+  });
   const settled: GameState = {
     ...game,
     phase: "settlement",
@@ -3206,6 +3289,7 @@ function settleJourney(game: GameState): GameState {
     cityReputation,
     relations,
     contacts: contactSettlement.contacts,
+    journey: arrivedJourney,
     cities: { ...game.cities, [contract.to]: destinationCity },
     crew: game.crew.map((member) => journey.crewIds.includes(member.id) ? { ...member, experience: member.experience + 1 } : member),
     equipmentStock: equipmentReward
@@ -3232,10 +3316,23 @@ export function equipmentRewardForDelivery(contract: Contract, grade: Settlement
 export function resolveEvent(game: GameState, choiceId: string): GameState {
   if (!game.currentEvent || game.phase !== "event") return game;
   const kind = game.currentEvent.kind;
-  let next: GameState = { ...game };
+  const chosen = game.currentEvent.choices.find((item) => item.id === choiceId);
+  if (!chosen || chosen.disabled) return game;
+  const recordedJourney = game.journey ? appendJourneyChronicle(game.journey, {
+    id: `event-${game.currentEvent.id}-${choiceId}-${game.journey.chronicle?.length ?? 0}`,
+    day: game.day,
+    kind: "event",
+    tone: chronicleToneForChoice(chosen.tone),
+    seal: chronicleSealForEvent(kind),
+    title: chosen.label,
+    detail: `${game.currentEvent.title} · ${chosen.hint}。`,
+    cityId: kind === "waystation" ? game.journey.plan.cityIds[game.journey.segmentIndex] : undefined,
+    routeId: game.journey.plan.routeIds[game.journey.segmentIndex],
+  }) : null;
+  let next: GameState = { ...game, journey: recordedJourney };
   const stance = travelStanceById(next.journey?.stance);
 
-  if (choiceId === "fight") return buildBattle(game);
+  if (choiceId === "fight") return buildBattle(next);
   if (kind === "handoff") {
     const picked = game.currentEvent.choices.find((item) => item.id === choiceId);
     if (!picked || picked.disabled || !next.journey) return next;
@@ -3906,7 +4003,7 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
     return { ...member, hp: Math.max(0, member.hp - damage), injury, experience, formationExperience };
   });
   let activeCrewIds = game.activeCrewIds;
-  let journey = game.journey ? {
+  let journey: JourneyState | null = game.journey ? {
     ...game.journey,
     battleVictories: (game.journey.battleVictories ?? 0) + (result.outcome === "complete" ? 1 : 0),
     escortHealth: game.journey.contract.kind === "escort"
@@ -3990,6 +4087,28 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
     ...(meritReports.length ? [`【战后记功】${meritReports.join("；")}。`] : []),
     ...(injuryReports.length ? [`【战后验伤】${injuryReports.join("；")}。`] : []),
   ];
+  if (journey) {
+    const outcomeLabel = result.outcome === "complete" ? "胜阵通路" : result.outcome === "partial" ? "勉强守住" : result.outcome === "retreat" ? "鸣金退阵" : "阵败失利";
+    const losses = [
+      result.leaderDamage ? `镖头伤 ${result.leaderDamage}` : "",
+      result.guardLoss ? `失去战力 ${result.guardLoss} 人` : "",
+      result.cartDamage || result.cartRepair ? `车况 ${result.cartRepair ? `修 ${result.cartRepair}／` : ""}损 ${result.cartDamage}` : "",
+      result.horseDamage ? `马匹伤 ${result.horseDamage}` : "",
+      result.cargoLoss ? `镖物损 ${result.cargoLoss}%` : "",
+      result.clientDamage ? `活镖伤 ${result.clientDamage}` : "",
+      result.sealBroken ? "封条破损" : "",
+    ].filter(Boolean);
+    journey = appendJourneyChronicle(journey, {
+      id: `battle-${game.pendingBattle.id}`,
+      day: game.day + (result.elapsedHours >= 8 ? 1 : 0),
+      kind: "battle",
+      tone: result.outcome === "defeat" || result.outcome === "retreat" ? "danger" : losses.length >= 3 ? "risk" : "good",
+      seal: result.outcome === "complete" ? "胜" : result.outcome === "partial" ? "守" : result.outcome === "retreat" ? "退" : "败",
+      title: `${outcomeLabel} · ${game.pendingBattle.routeName}`,
+      detail: losses.length ? losses.join(" · ") : "人车、马匹与镖物均无大损。",
+      routeId: completedRouteId,
+    });
+  }
   return completeSegment({
     ...game,
     day: game.day + (result.elapsedHours >= 8 ? 1 : 0),
