@@ -61,6 +61,15 @@ import { PLAYER_LEADER_ID, createInitialLeader } from "./leaderContent";
 import { deputyBondRank } from "./deputyBondContent";
 import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusContent";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
+import {
+  weatherEffectForRoute,
+  weatherForRoute,
+  weatherForecastConfidence,
+  weatherSequenceSummary,
+  type RegionalWeather,
+  type RouteWeatherEffect,
+  type WeatherForecastConfidence,
+} from "./weatherContent";
 import type {
   BattleConfig,
   BattleResult,
@@ -254,6 +263,15 @@ function currentRouteDangerFromCities(cities: Record<string, CityState>, routeId
 }
 
 export function currentRouteDanger(game: GameState, routeId: string): number {
+  const route = routeById(routeId);
+  const condition = effectiveRouteCondition(game.routeStates[routeId], game.day);
+  const livingRoadModifier = worldActorDangerModifier(game.worldActors, routeId, game.relations);
+  const weather = weatherForRoute(game.seed, game.day, route);
+  const weatherModifier = weatherEffectForRoute(weather, route.terrain).dangerModifier;
+  return clampDanger(currentRouteDangerFromCities(game.cities, routeId, condition) + livingRoadModifier + weatherModifier);
+}
+
+function currentRouteRoadDanger(game: GameState, routeId: string): number {
   const condition = effectiveRouteCondition(game.routeStates[routeId], game.day);
   const livingRoadModifier = worldActorDangerModifier(game.worldActors, routeId, game.relations);
   return clampDanger(currentRouteDangerFromCities(game.cities, routeId, condition) + livingRoadModifier);
@@ -402,7 +420,7 @@ function refreshedIntel(game: GameState, routeIds: string[], surveyedDay = game.
   const routeIntel = { ...game.routeIntel };
   for (const routeId of routeIds) {
     const previous = routeIntel[routeId] ?? { surveyedDay: -99, knownDanger: routeById(routeId).danger, trips: 0, knownCondition: "clear" as const };
-    routeIntel[routeId] = { ...previous, surveyedDay, knownDanger: currentRouteDanger(game, routeId), knownCondition: effectiveRouteCondition(game.routeStates[routeId], game.day) };
+    routeIntel[routeId] = { ...previous, surveyedDay, knownDanger: currentRouteRoadDanger(game, routeId), knownCondition: effectiveRouteCondition(game.routeStates[routeId], game.day) };
   }
   return routeIntel;
 }
@@ -454,10 +472,15 @@ export interface SegmentTravelForecast {
   staminaCost: number;
   staminaShortfall: number;
   dangerModifier: number;
+  weatherDangerModifier: number;
+  totalDangerModifier: number;
   modifiers: string[];
+  departureDay: number;
+  weather: RegionalWeather;
+  weatherEffect: RouteWeatherEffect;
 }
 
-export function segmentTravelForecast(game: GameState, routeId: string, availableStamina = game.convoy.horseStamina, useActualCondition = false): SegmentTravelForecast {
+export function segmentTravelForecast(game: GameState, routeId: string, availableStamina = game.convoy.horseStamina, useActualCondition = false, departureDay = game.day): SegmentTravelForecast {
   const route = routeById(routeId);
   const wagon = WAGONS[game.convoy.wagonId];
   const horses = HORSE_TEAMS[game.convoy.horseTeamId];
@@ -465,10 +488,12 @@ export function segmentTravelForecast(game: GameState, routeId: string, availabl
   const baseFatigue = route.days * 11 + (route.terrain === "mountain" ? 8 : route.terrain === "river" ? 2 : 4);
   const routeIntel = game.routeIntel[routeId];
   const reportedCondition = routeIntel?.knownCondition ?? "clear";
-  const condition = useActualCondition ? effectiveRouteCondition(game.routeStates[routeId], game.day) : reportedCondition;
+  const condition = useActualCondition ? effectiveRouteCondition(game.routeStates[routeId], departureDay) : reportedCondition;
   const conditionEffect = ROUTE_CONDITION_EFFECTS[condition];
+  const weather = weatherForRoute(game.seed, departureDay, route);
+  const weatherEffect = weatherEffectForRoute(weather, route.terrain);
   const stance = travelStanceById(game.journey?.stance);
-  const staminaCost = Math.max(8, Math.round(baseFatigue * wagon.fatigueMultiplier * horses.fatigueMultiplier * terrainFatigue * conditionEffect.staminaMultiplier * stance.staminaMultiplier));
+  const staminaCost = Math.max(8, Math.round(baseFatigue * wagon.fatigueMultiplier * horses.fatigueMultiplier * terrainFatigue * conditionEffect.staminaMultiplier * weatherEffect.staminaMultiplier * stance.staminaMultiplier));
   const staminaShortfall = Math.max(0, staminaCost - availableStamina);
   const modifiers: string[] = [];
   const wagonDays = wagon.dayModifier[route.terrain] ?? 0;
@@ -477,6 +502,7 @@ export function segmentTravelForecast(game: GameState, routeId: string, availabl
   if (wagonDays > 0) modifiers.push(`${wagon.name}笨重`);
   if (horseDays < 0) modifiers.push(`${horses.name}得地利`);
   if (condition !== "clear") modifiers.push(conditionEffect.label);
+  if (weather.kind !== "clear") modifiers.push(`${weather.seal}${weather.label}`);
   if (stance.id !== "steady") modifiers.push(stance.title);
   const conditionDelay = game.convoy.horseHp < 35 ? 1 : 0;
   if (conditionDelay) modifiers.push("马匹带伤");
@@ -487,34 +513,89 @@ export function segmentTravelForecast(game: GameState, routeId: string, availabl
     journeyCrew(game).reduce((delay, member) => Math.max(delay, crewInjuryById(member.injury?.id)?.modifiers.travelDelay ?? 0), 0),
   );
   if (injuryDelay) modifiers.push("重伤拖行");
-  const days = Math.max(1, route.days + wagonDays + horseDays + conditionEffect.dayModifier + conditionDelay + fatigueDelay + injuryDelay + stance.dayModifier);
+  const days = Math.max(1, route.days + wagonDays + horseDays + conditionEffect.dayModifier + weatherEffect.dayModifier + conditionDelay + fatigueDelay + injuryDelay + stance.dayModifier);
   const familiarSaving = (game.routeIntel[routeId]?.trips ?? 0) >= 2 ? 1 : 0;
   const cookSaving = journeyHasRole(game, "厨子") ? 1 : 0;
   const guideSaving = route.terrain === "mountain" && journeyHasRole(game, "向导") ? 1 : 0;
   const supplyCost = Math.max(1, Math.ceil(days * 1.5) - familiarSaving - cookSaving - guideSaving + stance.supplyModifier);
-  return { days, supplyCost, staminaCost, staminaShortfall, dangerModifier: stance.dangerModifier, modifiers };
+  return {
+    days,
+    supplyCost,
+    staminaCost,
+    staminaShortfall,
+    dangerModifier: stance.dangerModifier,
+    weatherDangerModifier: weatherEffect.dangerModifier,
+    totalDangerModifier: stance.dangerModifier + weatherEffect.dangerModifier,
+    modifiers,
+    departureDay,
+    weather,
+    weatherEffect,
+  };
 }
 
-export function routePlanTravelForecast(game: GameState, plan: RoutePlan): { days: number; supplyCost: number; staminaCost: number; dangerModifier: number; dangerLabel: string; modifiers: string[] } {
+export interface RouteWeatherReport {
+  routeId: string;
+  departureDay: number;
+  weather: RegionalWeather;
+  effect: RouteWeatherEffect;
+  confidence: WeatherForecastConfidence;
+}
+
+export interface RoutePlanTravelForecastResult {
+  days: number;
+  supplyCost: number;
+  staminaCost: number;
+  dangerModifier: number;
+  weatherDangerModifier: number;
+  totalDangerModifier: number;
+  dangerLabel: string;
+  modifiers: string[];
+  weatherReports: RouteWeatherReport[];
+  weatherSummary: string;
+}
+
+export function routePlanTravelForecast(game: GameState, plan: RoutePlan): RoutePlanTravelForecastResult {
   let stamina = game.convoy.horseStamina;
   let days = 0;
   let supplyCost = 0;
   let staminaCost = 0;
   const modifiers = new Set<string>();
+  const weatherReports: RouteWeatherReport[] = [];
   for (const routeId of plan.routeIds) {
-    const segment = segmentTravelForecast(game, routeId, stamina);
+    const departureDay = game.day + days;
+    const segment = segmentTravelForecast(game, routeId, stamina, false, departureDay);
     days += segment.days;
     supplyCost += segment.supplyCost;
     staminaCost += segment.staminaCost;
     stamina = Math.max(0, stamina - segment.staminaCost);
     segment.modifiers.forEach((item) => modifiers.add(item));
+    weatherReports.push({
+      routeId,
+      departureDay,
+      weather: segment.weather,
+      effect: segment.weatherEffect,
+      confidence: weatherForecastConfidence(game.day, departureDay),
+    });
   }
   const insight = routePlanInsight(game, plan);
   const stance = travelStanceById(game.journey?.stance);
-  const adjustedDanger = clampDanger(insight.knownDanger + stance.dangerModifier);
+  const weatherDangerModifier = Math.round(weatherReports.reduce((sum, report) => sum + report.effect.dangerModifier, 0) / Math.max(1, weatherReports.length));
+  const totalDangerModifier = stance.dangerModifier + weatherDangerModifier;
+  const adjustedDanger = clampDanger(insight.knownDanger + totalDangerModifier);
   const margin = insight.freshness === "fresh" ? 0 : insight.freshness === "aging" ? 7 : 14;
   const dangerLabel = margin ? `约 ${clampDanger(adjustedDanger - margin)}—${clampDanger(adjustedDanger + margin)}` : `${adjustedDanger}`;
-  return { days, supplyCost, staminaCost, dangerModifier: stance.dangerModifier, dangerLabel, modifiers: [...modifiers] };
+  return {
+    days,
+    supplyCost,
+    staminaCost,
+    dangerModifier: stance.dangerModifier,
+    weatherDangerModifier,
+    totalDangerModifier,
+    dangerLabel,
+    modifiers: [...modifiers],
+    weatherReports,
+    weatherSummary: weatherSequenceSummary(weatherReports.map((report) => report.weather)),
+  };
 }
 
 function riskLabel(danger: number): Contract["risk"] {
@@ -681,7 +762,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   };
   const routeIntel: Record<string, RouteIntelState> = Object.fromEntries(ROUTES.map((route) => [route.id, {
     ...initialGame.routeIntel[route.id],
-    knownDanger: currentRouteDanger(initialGame, route.id),
+    knownDanger: currentRouteRoadDanger(initialGame, route.id),
   }]));
   if (legacy.localRouteMastery > 0) {
     for (const route of ROUTES) {
@@ -718,10 +799,10 @@ interface PathCandidate {
   danger: number;
 }
 
-function planningCondition(game: GameState | undefined, routeId: string, useActual: boolean): { condition: RouteCondition; blocked: boolean } {
+function planningCondition(game: GameState | undefined, routeId: string, useActual: boolean, atDay = game?.day ?? 1): { condition: RouteCondition; blocked: boolean } {
   if (!game) return { condition: "clear", blocked: false };
   if (useActual) {
-    const condition = effectiveRouteCondition(game.routeStates[routeId], game.day);
+    const condition = effectiveRouteCondition(game.routeStates[routeId], atDay);
     return { condition, blocked: !routeIsPassable(condition) };
   }
   const intel = game.routeIntel[routeId];
@@ -741,12 +822,23 @@ function enumeratePaths(from: string, to: string, maxSegments = 6, game?: GameSt
     }
     for (const route of ROUTES) {
       if (route.from !== cityId && route.to !== cityId) continue;
-      const routeCondition = planningCondition(game, route.id, useActual);
+      const departureDay = game ? game.day + days : 1;
+      const routeCondition = planningCondition(game, route.id, useActual, departureDay);
       if (routeCondition.blocked) continue;
       const next = otherCity(route, cityId);
       if (visited.has(next)) continue;
       const effect = ROUTE_CONDITION_EFFECTS[routeCondition.condition];
-      visit(next, new Set([...visited, next]), [...routeIds, route.id], [...cityIds, next], days + route.days + effect.dayModifier, dangerSum + route.danger + effect.dangerModifier);
+      const weatherEffect = game
+        ? weatherEffectForRoute(weatherForRoute(game.seed, departureDay, route), route.terrain)
+        : { dayModifier: 0, dangerModifier: 0 };
+      visit(
+        next,
+        new Set([...visited, next]),
+        [...routeIds, route.id],
+        [...cityIds, next],
+        days + route.days + effect.dayModifier + weatherEffect.dayModifier,
+        dangerSum + route.danger + effect.dangerModifier + weatherEffect.dangerModifier,
+      );
     }
   }
 
@@ -1521,8 +1613,10 @@ export function createWorldActorEvent(game: GameState, routeId: string, actor: W
   };
 }
 
-function createEvent(game: GameState, routeId: string, travelersAtDeparture: readonly WorldActor[] = []): { event: TravelEvent; rngState: number } {
+function createEvent(game: GameState, routeId: string, travelersAtDeparture: readonly WorldActor[] = [], segmentWeather?: RegionalWeather): { event: TravelEvent; rngState: number } {
   const route = routeById(routeId);
+  const weather = segmentWeather ?? weatherForRoute(game.seed, game.day, route);
+  const weatherEffect = weatherEffectForRoute(weather, route.terrain);
   const journey = game.journey!;
   const stance = travelStanceById(journey.stance);
   const segmentFrom = journey.plan.cityIds[journey.segmentIndex];
@@ -1578,19 +1672,32 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
   const routeIntel = game.routeIntel[routeId] ?? { surveyedDay: -99, knownDanger: route.danger, trips: 0, knownCondition: "clear" as const };
   const mastery = Math.min(3, routeIntel.trips);
   const watchedByOffice = Boolean(officeAt(game, route.from) || officeAt(game, route.to));
-  const stormThreshold = Math.max(0.08, (route.terrain === "river" ? 0.22 : 0.13) - mastery * 0.015);
+  const stormThreshold = Math.min(0.48, Math.max(0.04, (route.terrain === "river" ? 0.22 : 0.13) + weatherEffect.eventChanceModifier - mastery * 0.015));
   if (eventRoll.value < stormThreshold) {
+    const weatherEvent = weather.kind === "rain"
+      ? { eyebrow: "雨脚压低了驿道", title: "连雨把车辙泡成软泥", shelter: "檐下候雨", press: "垫草裹轮前行", detail: "车轮每转一圈都在泥里打滑。" }
+      : weather.kind === "storm"
+        ? { eyebrow: route.terrain === "river" ? "雷脚逼近渡口" : "山云压到镖旗顶", title: route.terrain === "river" ? "渡口挂起风暴停航旗" : "急雨截断前方官道", shelter: "扎营避暴", press: "抢在雷脚前硬行", detail: "风声盖过梆子，马匹已经开始躁动。" }
+        : weather.kind === "fog"
+          ? { eyebrow: "白雾吞没前哨", title: "前后两车已经互相看不见", shelter: "结阵候雾散", press: "牵马贴路缓行", detail: "趟子手只能靠车铃辨认队尾。" }
+          : weather.kind === "gale"
+            ? { eyebrow: route.terrain === "river" ? "横风掀动船篷" : "大风卷起黄尘", title: route.terrain === "river" ? "逆风把渡船压回岸边" : "镖旗与车篷都在风里吃力", shelter: "背风处收篷", press: "压低车篷硬闯", detail: "再催车，最先撑不住的可能是辕马。" }
+            : weather.kind === "frost"
+              ? { eyebrow: "晨霜封住石路", title: "车轮与马蹄一齐打滑", shelter: "生火化霜", press: "撒土牵马前行", detail: "阴坡上的薄冰看不见，却处处咬住车轮。" }
+              : weather.kind === "heat"
+                ? { eyebrow: "暑气蒸起白烟", title: "辕马开始喘粗气", shelter: "卸鞍歇马", press: "添水趁午前赶路", detail: "人还能咬牙，马力却正在飞快见底。" }
+                : { eyebrow: route.terrain === "river" ? "河面忽起横风" : "前方天色骤变", title: route.terrain === "river" ? "渡口临时升起停航旗" : "一阵急雨冲过官道", shelter: "扎营等候", press: "裹轮硬行", detail: "这阵突发天候不在今晨路报之中。" };
     return {
       rngState: eventRoll.state,
       event: {
         id: `storm-${game.day}-${routeId}`,
         kind: "storm",
-        eyebrow: route.terrain === "river" ? "河面风急" : "天色骤变",
-        title: route.terrain === "river" ? "渡口升起停航旗" : "骤雨把官道化成泥潭",
-        description: "车轮越陷越深，马匹也开始躁动。硬赶能保时限，却未必保得住车。",
+        eyebrow: `${weather.region.name} · ${weatherEvent.eyebrow}`,
+        title: weatherEvent.title,
+        description: `${weather.description}${weatherEvent.detail}硬赶能保时限，却未必保得住车马。`,
         choices: [
-          choice("shelter", "扎营等候", "延误 1 日，队伍平安，马力恢复 12", "safe"),
-          choice("press", "裹轮硬行", "消耗 2 份补给，车辆受轻损", "risk"),
+          choice("shelter", weatherEvent.shelter, "延误 1 日，队伍平安，马力恢复 12", "safe"),
+          choice("press", weatherEvent.press, "消耗 2 份补给，车辆受轻损", "risk"),
         ],
       },
     };
@@ -1700,6 +1807,7 @@ export function advanceTravel(game: GameState): GameState {
   const routeId = game.journey.plan.routeIds[game.journey.segmentIndex];
   if (!routeId) return game;
   const route = routeById(routeId);
+  const departureWeather = weatherForRoute(game.seed, game.day, route);
   const travelersAtDeparture = worldActorsOnRoute(game.worldActors, routeId);
   const actualCondition = effectiveRouteCondition(game.routeStates[routeId], game.day);
   if (!routeIsPassable(actualCondition)) {
@@ -1733,7 +1841,7 @@ export function advanceTravel(game: GameState): GameState {
         : next.journey!.escortHealth,
     },
   };
-  const created = createEvent(next, routeId, travelersAtDeparture);
+  const created = createEvent(next, routeId, travelersAtDeparture, departureWeather);
   return { ...next, rngState: created.rngState, currentEvent: created.event, phase: "event" };
 }
 

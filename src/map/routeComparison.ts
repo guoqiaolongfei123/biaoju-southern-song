@@ -6,6 +6,7 @@ export interface MapRouteCandidate {
   days: number;
   dangerLabel: string;
   borderSegments: number;
+  weatherLabel?: string;
 }
 
 export const ROUTE_CANDIDATE_SEALS = ["壹", "贰", "叁"] as const;

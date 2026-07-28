@@ -65,6 +65,7 @@ import { createCrewInjury, crewInjuryById } from "./core/injuryContent";
 import { EQUIPMENT } from "./core/equipmentContent";
 import { deputyBondRank } from "./core/deputyBondContent";
 import { frontlineSituation } from "./core/frontlineContent";
+import { weatherForCity } from "./core/weatherContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
 import { routeCandidateSeal, type MapRouteCandidate } from "./map/routeComparison";
@@ -757,6 +758,9 @@ function RouteCard({
   const cities = plan.cityIds.map((id) => cityById(id).name).join(" · ");
   const insight = routePlanInsight(game, plan);
   const travel = routePlanTravelForecast(game, plan);
+  const routeStance = travelStanceById(game.journey?.stance);
+  const strongestWeather = [...travel.weatherReports].sort((a, b) => b.weather.severity - a.weather.severity)[0];
+  const furthestWeather = travel.weatherReports[travel.weatherReports.length - 1];
   const freshnessLabel = insight.freshness === "fresh" ? "今报" : insight.freshness === "aging" ? "旧报" : "传闻";
   const hasScout = game.activeCrewIds.some((id) => game.crew.find((member) => member.id === id)?.role === "趟子手");
   const intelCost = routeInvestigationCost(game);
@@ -785,7 +789,8 @@ function RouteCard({
           {insight.conditionReports.map((report) => <span key={report.routeId} className={`condition-${report.condition}`}>{ROUTE_CONDITION_EFFECTS[report.condition].seal} · {report.label}{report.stale ? "（旧报）" : ""}</span>)}
           <span>预计耗粮 {travel.supplyCost}</span>
           <span>马力 -{travel.staminaCost}</span>
-          <span className={`stance-tag stance-${game.journey?.stance ?? "steady"}`}>{travelStanceById(game.journey?.stance).title}{travel.dangerModifier ? ` · 路险${travel.dangerModifier > 0 ? "+" : ""}${travel.dangerModifier}` : ""}</span>
+          <span className={`stance-tag stance-${game.journey?.stance ?? "steady"}`}>{routeStance.title}{routeStance.dangerModifier ? ` · 路险${routeStance.dangerModifier > 0 ? "+" : ""}${routeStance.dangerModifier}` : ""}</span>
+          {strongestWeather && <span className={`weather-tag weather-${strongestWeather.weather.kind}`}>{travel.weatherSummary} · {furthestWeather.confidence.label}</span>}
           {travel.days !== plan.days && <span className="convoy-modifier">车马行策 {travel.days - plan.days > 0 ? "+" : ""}{travel.days - plan.days}日</span>}
         </div>
         <p className="route-cities">{cities}</p>
@@ -887,7 +892,7 @@ function App() {
   const routePlans = useMemo(() => {
     if (!game?.journey) return [];
     return generateRoutePlans(game.journey.contract.from, game.journey.contract.to, game);
-  }, [game?.journey?.contract.id, game?.routeIntel]);
+  }, [game?.journey?.contract.id, game?.routeIntel, game?.routeStates, game?.day, game?.seed]);
 
   const mapRouteCandidates = useMemo<MapRouteCandidate[]>(() => {
     if (!game || game.phase !== "planning") return [];
@@ -902,6 +907,7 @@ function App() {
         days: travel.days,
         dangerLabel: travel.dangerLabel,
         borderSegments: insight.borderSegments,
+        weatherLabel: travel.weatherSummary,
       };
     });
   }, [game, routePlans]);
@@ -942,6 +948,11 @@ function App() {
   }
 
   const selectedCity = cityById(game.selectedCityId);
+  const selectedWeather = weatherForCity(game.seed, game.day, selectedCity);
+  const selectedTomorrowWeather = weatherForCity(game.seed, game.day + 1, selectedCity);
+  const selectedWeatherOutlook = selectedTomorrowWeather.kind === selectedWeather.kind
+    ? `预计延续至第 ${selectedWeather.endsDay} 日`
+    : `明日转${selectedTomorrowWeather.seal} · ${selectedTomorrowWeather.label}`;
   const selectedState = game.cities[selectedCity.id];
   const selectedEffect = cityStatusEffect(selectedState);
   const selectedFrontline = frontlineSituation(game.cities, selectedCity.id, game.day, game.worldActors);
@@ -1043,6 +1054,11 @@ function App() {
                 <span className="faction-seal" style={{ borderColor: selectedFaction.color, color: selectedFaction.color }}>{selectedFaction.short}</span>
               </div>
               <p className="city-description">{selectedCity.description}</p>
+              <div className={`city-weather-note weather-${selectedWeather.kind}`} aria-label={`${selectedCity.name}今日天候：${selectedWeather.label}`}>
+                <i>{selectedWeather.seal}</i>
+                <span><small>{selectedWeather.region.name} · 今日天象</small><b>{selectedWeather.label}</b><em>{selectedWeather.description}</em></span>
+                <strong>{selectedWeatherOutlook}</strong>
+              </div>
               {isCurrentCity && <>
                 <div className="city-brief-strip" aria-label="本城要况">
                   <span><small>城况</small><b>{selectedEffect.label}</b></span>
@@ -1418,6 +1434,7 @@ function App() {
                 <p><span>当前路段</span><b>{routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).name}</b></p>
                 <p><span>预计耗时</span><b>{forecast.days} 日</b></p>
                 <p><span>地形</span><b>{TERRAIN_LABEL[routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).terrain]}</b></p>
+                <p><span>当前天候</span><b className={`journey-weather weather-${forecast.weather.kind}`}>{forecast.weather.seal} · {forecast.weather.label}<small>{forecast.weatherEffect.note}</small></b></p>
                 <p><span>行程方略</span><b className={`journey-stance stance-${journeyStance.id}`}>{journeyStance.seal} · {journeyStance.title}</b></p>
                 <p><span>车马耗用</span><b>粮 {forecast.supplyCost} · 马力 {forecast.staminaCost}</b></p>
                 {activeTradeGood && <p><span>随车副货</span><b>{activeTradeGood.seal} · {activeTradeGood.name}（本钱 {game.journey!.tradeLot!.purchasePrice} 两）</b></p>}
@@ -1461,7 +1478,7 @@ function App() {
               </div>
               {game.currentEvent.kind === "waystation" && stopoverRouteId && stopoverForecast && (
                 <section className="stopover-strategy" aria-label="在落脚点改换行程方略">
-                  <div className="stopover-next"><span>下一程 · {routeById(stopoverRouteId).name}</span><b>{stopoverForecast.days} 日 · 粮 {stopoverForecast.supplyCost} · 马力 {stopoverForecast.staminaCost}</b></div>
+                  <div className="stopover-next"><span>下一程 · {routeById(stopoverRouteId).name}<small className={`weather-${stopoverForecast.weather.kind}`}>{stopoverForecast.weather.seal} · {stopoverForecast.weather.label} · {stopoverForecast.weatherEffect.note}</small></span><b>{stopoverForecast.days} 日 · 粮 {stopoverForecast.supplyCost} · 马力 {stopoverForecast.staminaCost}</b></div>
                   <div className="stopover-stances">
                     {TRAVEL_STANCE_LIST.map((stance) => (
                       <button key={stance.id} className={`stance-${stance.id} ${game.journey!.stance === stance.id ? "is-selected" : ""}`} aria-pressed={game.journey!.stance === stance.id} onClick={() => setGame(setTravelStance(game, stance.id))}>

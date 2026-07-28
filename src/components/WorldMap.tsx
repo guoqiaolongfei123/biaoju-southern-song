@@ -6,6 +6,7 @@ import { cityStatusEffect } from "../core/cityContent";
 import { frontlineSituation } from "../core/frontlineContent";
 import { ROUTE_CONDITION_EFFECTS } from "../core/routeContent";
 import { worldActorEffectLabel } from "../core/worldActorContent";
+import { regionalWeatherSnapshot, weatherForCity } from "../core/weatherContent";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
@@ -255,6 +256,8 @@ export default function WorldMap({
   const activeRoutes = new Set(activeRouteIds);
   const selectedCity = CITIES.find((city) => city.id === selectedCityId);
   const currentCity = CITIES.find((city) => city.id === game.currentCityId);
+  const selectedWeather = selectedCity ? weatherForCity(game.seed, game.day, selectedCity) : null;
+  const regionalWeather = useMemo(() => regionalWeatherSnapshot(game.seed, game.day), [game.seed, game.day]);
   const activeCityIds = useMemo(() => new Set(game.journey?.plan.cityIds ?? []), [game.journey?.plan.id]);
   const routeCandidateSignature = routeCandidates.map((candidate) => candidate.id).join("|");
   const effectivePreviewId = routeCandidates.some((candidate) => candidate.id === previewRouteId) ? previewRouteId : routeCandidates[0]?.id ?? null;
@@ -418,7 +421,7 @@ export default function WorldMap({
     if (event.currentTarget.hasPointerCapture(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
-  function handleCityHit(event: React.MouseEvent<SVGGElement>) {
+  function handleCityHit(event: React.MouseEvent<SVGElement>) {
     const svg = svgRef.current;
     if (!svg) return;
     event.stopPropagation();
@@ -457,6 +460,7 @@ export default function WorldMap({
       <div className="map-detail-readout" aria-live="polite">
         <b>{mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
         <span>{detailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {borderRouteCount}处边路</span>
+        {selectedWeather && <small className={`weather-${selectedWeather.kind}`}>{selectedCity?.name} · {selectedWeather.seal}·{selectedWeather.label}</small>}
         {mapDetail !== "close" && <small>继续放大展开城池</small>}
       </div>
       {routeCandidates.length > 0 && (
@@ -473,10 +477,10 @@ export default function WorldMap({
                   onMouseEnter={() => onPreviewRoute?.(candidate.id)}
                   onFocus={() => onPreviewRoute?.(candidate.id)}
                   onClick={() => onPreviewRoute?.(candidate.id)}
-                  title={`${candidate.label}：${candidate.days}日，路险${candidate.dangerLabel}，${candidate.borderSegments ? `跨${candidate.borderSegments}处边关` : "不跨边关"}`}
+                  title={`${candidate.label}：${candidate.days}日，路险${candidate.dangerLabel}，${candidate.weatherLabel ?? "沿途天候未报"}，${candidate.borderSegments ? `跨${candidate.borderSegments}处边关` : "不跨边关"}`}
                 >
                   <i>{routeCandidateSeal(index)}</i>
-                  <span><b>{candidate.label}</b><small>{candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.borderSegments ? `${candidate.borderSegments}关` : "无越关"}</small></span>
+                  <span><b>{candidate.label}</b><small>{candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"}</small></span>
                 </button>
               );
             })}
@@ -546,6 +550,24 @@ export default function WorldMap({
           {historicalRegions.map((region) => (
             <path key={region.faction} className={`faction-region faction-${region.faction}`} d={mapPath(region.shape) ?? ""} fill={`url(#hatch-${region.faction})`} />
           ))}
+        </g>
+
+        <g className={`weather-system weather-detail-${mapDetail}`} aria-label={`第${game.day}日天下区域天候`}>
+          {regionalWeather.map((weather) => {
+            const point = projectedLabel(...weather.region.center);
+            const scale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .64 : .38;
+            return (
+              <g key={weather.region.id} className={`weather-region weather-${weather.kind}`} transform={`translate(${point.x} ${point.y})`}>
+                <g transform={`scale(${scale})`}>
+                  <ellipse className="weather-wash" rx="48" ry="27" />
+                  <circle className="weather-token-paper" r="10.5" />
+                  <text className="weather-token-seal" y="3.4" textAnchor="middle">{weather.seal}</text>
+                  {mapDetail !== "close" && <text className="weather-region-label" y="18" textAnchor="middle">{weather.region.name} · {weather.label}</text>}
+                </g>
+                <title>{weather.region.name} · 第 {game.day} 日 · {weather.label} · {weather.description}</title>
+              </g>
+            );
+          })}
         </g>
 
         <g className="mountain-ranges" aria-hidden="true">
@@ -638,7 +660,7 @@ export default function WorldMap({
                     const route = ROUTES.find((item) => item.id === routeId);
                     if (!route) return null;
                     const { from, to, mx, my } = routeCurve(route);
-                    return <path key={routeId} className="route-candidate-segment" d={`M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`}><title>{routeCandidateSeal(candidateIndex)}路 · {candidate.label} · {candidate.days}日 · 路险{candidate.dangerLabel}</title></path>;
+                    return <path key={routeId} className="route-candidate-segment" d={`M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`}><title>{routeCandidateSeal(candidateIndex)}路 · {candidate.label} · {candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"}</title></path>;
                   })}
                   {anchor && (
                     <g className="route-candidate-seal" transform={`translate(${anchor.mx} ${anchor.my})`} aria-hidden="true">
@@ -720,11 +742,7 @@ export default function WorldMap({
                 className={`city-node ${detailedMarker ? "marker-detailed" : "marker-dot"} tier-${city.tier} status-${state.status} ${frontline.visible ? `is-frontline frontline-${frontline.risk}` : ""} ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${active ? "is-on-route" : ""} ${candidateRole ? `is-candidate-waypoint waypoint-${candidateRole} candidate-tone-${Math.max(0, previewCandidateIndex) % 3}` : ""}`}
                 data-city-id={city.id}
                 transform={`translate(${city.x} ${city.y})`}
-                role="button"
-                tabIndex={0}
-                aria-label={`${city.name}，${faction.name}，${condition.label}${frontline.visible ? `，战线${frontline.label}` : ""}${stale ? "，情报可能过期" : ""}`}
-                onClick={() => onSelectCity(city.id)}
-                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelectCity(city.id); }}
+                onClick={(event) => { event.stopPropagation(); onSelectCity(city.id); }}
               >
                 {detailedMarker && showBadges && frontline.visible && <circle className={`frontline-ring risk-${frontline.risk}`} r={city.tier === "station" ? 10.5 : 16} aria-hidden="true" />}
                 {detailedMarker
@@ -770,6 +788,15 @@ export default function WorldMap({
                   {label.leader && <path className="city-label-leader" d={`M0 0 L${label.x * .68} ${label.y * .68}`} />}
                   <text className="city-name" x={label.x} y={label.y} textAnchor={label.anchor}>{city.name}</text>
                 </>}
+                <circle
+                  className="city-node-accessible-hit"
+                  r={Math.max(4.5, Math.min(9.5, hitRadius * .64))}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${city.name}，${faction.name}，${condition.label}${frontline.visible ? `，战线${frontline.label}` : ""}${stale ? "，情报可能过期" : ""}`}
+                  onClick={handleCityHit}
+                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelectCity(city.id); }}
+                />
                 <title>{city.name} · 东经 {city.lon.toFixed(2)}° · 北纬 {city.lat.toFixed(2)}°{frontline.visible ? ` · ${frontline.label} · 守势 ${frontline.defense} / 兵压 ${frontline.pressure}` : ""}</title>
               </g>
             );
@@ -798,6 +825,7 @@ export default function WorldMap({
         <span><i className="legend-traveler rival" />同行镖队</span>
         <span><i className="legend-current-city">镖</i>镖队所在</span>
         <span><i className="legend-border-route">界</i>异旗边路</span>
+        <span><i className="legend-weather">候</i>区域天候</span>
         <span><i className="legend-station-dot" />驿城标点</span>
         <span><i className="legend-capital" />都城</span>
       </div>
