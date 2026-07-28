@@ -185,6 +185,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-current-location:hover { color: #f0dfb6; background: rgba(37,73,53,.94); border-color: #d6b96d; }
 .map-current-location i { display: grid; width: 28px; height: 28px; place-items: center; color: #e7cd87; background: #285b43; border: 1px solid #c7a95e; font: 17px var(--font-display); font-style: normal; }
 .map-current-location span { display: grid; gap: 1px; font-size: 8px; letter-spacing: .12em; }.map-current-location b { font: 15px var(--font-display); font-weight: 400; letter-spacing: .12em; }
+.map-current-location span em { color: color-mix(in srgb, var(--weather-accent) 78%, #5b4a32); font-size: 7px; font-style: normal; letter-spacing: .04em; white-space: nowrap; }
 .map-current-location small { color: inherit; font-size: 7px; opacity: .68; white-space: nowrap; }.has-route-candidates .map-current-location { top: 245px; }
 .map-detail-readout { position: absolute; z-index: 6; right: 24px; bottom: 42px; display: grid; justify-items: end; gap: 1px; padding: 7px 9px; color: #45311e; background: rgba(228,207,166,.65); border: 1px solid rgba(66,45,25,.2); box-shadow: 0 6px 18px rgba(43,27,15,.13); backdrop-filter: blur(4px); pointer-events: none; }
 .map-detail-readout b { font: 13px var(--font-display); font-weight: 400; letter-spacing: .14em; }.map-detail-readout span { font-size: 9px; letter-spacing: .06em; }.map-detail-readout small { color: rgba(65,45,26,.64); font-size: 8px; letter-spacing: .08em; }
@@ -214,6 +215,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .weather-system { mix-blend-mode: normal; }
 .weather-region { color: var(--weather-accent); filter: drop-shadow(0 1px 1px rgba(50,34,20,.28)); }
 .weather-front-ring { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-dasharray: 7 3 1 3; opacity: .3; paint-order: stroke; }
+.weather-front-inner { fill: none; stroke: currentColor; stroke-width: .75; stroke-dasharray: 2 4; opacity: .18; }
 .weather-wash { fill: currentColor; opacity: .14; stroke: currentColor; stroke-width: .7; stroke-dasharray: 2 4; }
 .weather-rain .weather-wash, .weather-fog .weather-wash { opacity: .2; }
 .weather-storm .weather-wash, .weather-gale .weather-wash, .weather-frost .weather-wash { opacity: .25; }
@@ -227,6 +229,8 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .weather-symbol-accent { fill: currentColor; stroke-width: .9; }
 .weather-token-seal { fill: color-mix(in srgb, currentColor 86%, #291c13); font: 12px var(--font-display); }
 .weather-duration { fill: color-mix(in srgb, currentColor 70%, #2c2017); font: 4.2px var(--font-body); font-weight: 600; letter-spacing: .04em; }
+.weather-severity-marks circle { fill: rgba(91,73,50,.18); stroke: color-mix(in srgb, currentColor 72%, #3c2a1b); stroke-width: .45; }
+.weather-severity-marks circle.is-filled { fill: currentColor; stroke: rgba(239,219,178,.92); stroke-width: .55; }
 .weather-region-label { fill: currentColor; font: 8px var(--font-display); letter-spacing: .07em; paint-order: stroke; stroke: rgba(236,219,183,.94); stroke-width: 2.3px; }
 .weather-detail-close .weather-wash { opacity: .12; }
 .map-layer-roads .weather-atmosphere { opacity: .18; }
@@ -235,6 +239,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-layer-roads .weather-atmosphere .weather-clear { opacity: .03; }
 .map-layer-weather .weather-atmosphere, .map-layer-weather .weather-system { opacity: 1; }
 .map-layer-weather .weather-front-ring { stroke-width: 1.65; opacity: .72; }
+.map-layer-weather .weather-front-inner { stroke-width: 1.1; opacity: .42; }
 .map-layer-weather .weather-wash { opacity: .34; }
 .map-layer-weather .weather-rain .weather-wash, .map-layer-weather .weather-fog .weather-wash { opacity: .44; }
 .map-layer-weather .weather-storm .weather-wash, .map-layer-weather .weather-gale .weather-wash, .map-layer-weather .weather-frost .weather-wash { opacity: .56; }
@@ -279,23 +284,27 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .route-river .route-line { stroke-width: 3.5; opacity: .98; }
 .route-river .route-pattern { stroke: rgba(226,241,222,.88); stroke-width: 1.15; stroke-dasharray: 7 4; }
 .route-river .route-bed { stroke: rgba(221,232,204,.72); stroke-width: 4.4; }
-.map-layer-roads .painted-map-land-art { opacity: .42; }
-.map-layer-roads .faction-regions { opacity: .72; }
-.map-layer-roads .city-node:not(.is-current):not(.is-selected):not(.is-on-route), .map-layer-roads .city-cluster { opacity: .76; }
-.map-layer-roads .route-shadow { opacity: .68; }
+.map-layer-roads .painted-map-land-art { opacity: .34; }
+.map-layer-roads .faction-regions { opacity: .48; }
+.map-layer-roads .city-node:not(.is-current):not(.is-selected):not(.is-on-route), .map-layer-roads .city-cluster { opacity: .48; }
+.map-layer-roads .route-shadow { stroke-width: 8.2; opacity: .78; }
 .map-layer-roads .route-casing { opacity: .98; }
-.map-layer-roads .route-bed { stroke-width: 4.5; opacity: .76; }
-.map-layer-roads .route-line { stroke-width: 3.15; opacity: 1; }
-.map-layer-roads .route-mountain .route-line { stroke-width: 3.7; }.map-layer-roads .route-river .route-line { stroke-width: 4.5; }
+.map-layer-roads .route-bed { stroke-width: 5.7; opacity: .86; }
+.map-layer-roads .route-line { stroke-width: 4.1; opacity: 1; }
+.map-layer-roads .route-official .route-casing { stroke-width: 6.6; }
+.map-layer-roads .route-mountain .route-casing { stroke-width: 7.1; }
+.map-layer-roads .route-river .route-casing { stroke-width: 8; }
+.map-layer-roads .route-mountain .route-line { stroke-width: 4.7; }.map-layer-roads .route-river .route-line { stroke-width: 5.6; }
 .map-layer-roads .route-pattern { opacity: .94; }
 .map-layer-roads .route.intel-aging:not(.is-active) .route-line { opacity: .84; }
 .map-layer-roads .route.intel-rumor:not(.is-active) .route-line { opacity: .68; }
 .map-layer-roads .control-corridor { opacity: .06; }
-.map-layer-roads .world-actors { opacity: .66; }
+.map-layer-roads .world-actors { opacity: .34; }
+.map-layer-roads .map-route-landmarks { opacity: .54; }
 .map-layer-weather .route-shadow, .map-layer-weather .route-casing { opacity: .18; }
 .map-layer-weather .route-line { opacity: .3; }
 .map-layer-weather .route-pattern { opacity: .14; }
-.map-layer-weather .city-node:not(.is-current):not(.is-selected):not(.is-on-route), .map-layer-weather .city-cluster { opacity: .52; }
+.map-layer-weather .city-node:not(.is-current):not(.is-selected):not(.is-on-route), .map-layer-weather .city-cluster { opacity: .3; }
 .map-layer-weather .region-labels { opacity: .48; }
 .map-layer-weather .route-weather-trace { stroke-width: 7.2; opacity: .72; }
 .map-layer-weather .route-weather-clear .route-weather-trace { opacity: .05; }
@@ -304,7 +313,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-layer-weather .weather-severity-3 .route-weather-trace { stroke-width: 7.6; opacity: .8; }
 .map-layer-weather .weather-severity-4 .route-weather-trace { stroke-width: 8.8; opacity: .92; stroke-dasharray: 2 3; }
 .map-layer-weather .route:not(.route-weather-clear) .route-weather-trace { animation: weather-route-flow 4.8s linear infinite; }
-.map-layer-weather .map-route-landmarks, .map-layer-weather .world-actors { opacity: .45; }
+.map-layer-weather .map-route-landmarks, .map-layer-weather .world-actors { opacity: .2; }
 .map-layer-weather .city-owner-badge, .map-layer-weather .map-condition-marker, .map-layer-weather .map-office-marker { opacity: .54; }
 .route:hover .route-line { opacity: 1; filter: drop-shadow(0 1px 1px rgba(58,36,18,.55)); }.route:hover .route-casing { opacity: 1; }
 .route.intel-aging:not(.is-active) .route-line { opacity: .62; }
@@ -321,6 +330,14 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .route-hit-layer { pointer-events: none; }
 .route-hit-target { fill: none; stroke: rgba(0,0,0,.001); stroke-width: 12; pointer-events: stroke; cursor: pointer; outline: none; vector-effect: non-scaling-stroke; transition: stroke .14s ease, stroke-width .14s ease; }
 .route-hit-target:hover, .route-hit-target:focus-visible { stroke: rgba(199,151,66,.42); stroke-width: 7; }
+.route.is-hovered .route-shadow, .route.is-inspected .route-shadow { opacity: .92; }
+.route.is-hovered .route-casing, .route.is-inspected .route-casing { stroke: rgba(249,229,186,.98); stroke-width: 8.2; opacity: 1; }
+.route.is-hovered .route-line, .route.is-inspected .route-line { stroke-width: 4.8; opacity: 1; filter: drop-shadow(0 1px 2px rgba(52,31,16,.82)); }
+.route.is-hovered .route-pattern, .route.is-inspected .route-pattern { opacity: 1; }
+.map-layer-roads .route.route-condition-muddy:not(.is-active) .route-line,
+.map-layer-roads .route.route-condition-blockaded:not(.is-active) .route-line,
+.map-layer-roads .route.route-condition-banditry:not(.is-active) .route-line { stroke-width: 4.4; }
+.map-layer-roads .route.route-condition-flooded:not(.is-active) .route-line { stroke-width: 5.3; }
 .route.is-active .route-casing { stroke: rgba(245,225,181,.94); stroke-width: 6.5; opacity: 1; }
 .route.is-active .route-line { stroke-width: 3.6; opacity: 1; filter: drop-shadow(0 1px 2px #604115); stroke-dasharray: 7 4; animation: route-flow 1.5s linear infinite; }
 .route.is-active .route-pattern { opacity: 0; }
@@ -366,6 +383,9 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .city-cluster-paper { fill: rgba(226,207,166,.96); stroke: currentColor; stroke-width: 1.35; stroke-linejoin: round; }
 .city-cluster-core { fill: currentColor; stroke: #ead5a4; stroke-width: .8; }
 .city-cluster text { fill: #f5e3b8; stroke: rgba(49,30,18,.7); stroke-width: .65; paint-order: stroke; font: 6.4px var(--font-display); }
+.city-cluster.is-mixed-control .city-cluster-paper { fill: rgba(221,204,169,.98); stroke: #59432d; stroke-width: 1.55; }
+.city-cluster-factions { pointer-events: none; filter: drop-shadow(0 1px .6px rgba(38,24,14,.72)); }
+.city-cluster-factions circle { stroke: #ead7ab; stroke-width: .72; }
 .city-cluster:hover, .city-cluster:focus-visible { filter: drop-shadow(0 2px 2px rgba(34,21,12,.82)); }.city-cluster:hover .city-cluster-halo, .city-cluster:focus-visible .city-cluster-halo { fill: rgba(242,222,180,.95); stroke-width: 1.5; }
 .city-node-accessible-hit { fill: transparent; stroke: none; pointer-events: all; cursor: pointer; }
 .city-node-accessible-hit:focus { fill: rgba(222,190,118,.16); stroke: rgba(79,53,29,.7); stroke-width: 1; outline: none; }
@@ -377,6 +397,8 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .city-dot-glyph { pointer-events: none; filter: drop-shadow(0 1px .8px rgba(43,28,16,.55)); transition: transform .16s ease, filter .16s ease; transform-box: fill-box; transform-origin: center; }
 .city-dot-halo { fill: rgba(227,210,174,.9); stroke: #3a2a1b; stroke-width: .8; stroke-linejoin: round; }.city-dot-core { fill: currentColor; stroke: #352519; stroke-width: .55; stroke-linejoin: round; }.city-dot-glint { fill: rgba(255,237,197,.9); }
 .frontline-ring { fill: none; stroke: rgba(133,76,39,.66); stroke-width: 1.2; stroke-dasharray: 2.5 2.2; pointer-events: none; vector-effect: non-scaling-stroke; }
+.city-weather-ring { fill: none; stroke: var(--weather-accent); stroke-width: 4.4; stroke-dasharray: 2 3.2; opacity: .78; pointer-events: none; vector-effect: non-scaling-stroke; filter: drop-shadow(0 1px 1px rgba(43,28,17,.48)); }
+.city-weather-ring.severity-3, .city-weather-ring.severity-4 { stroke-width: 5.5; opacity: .94; }
 .frontline-ring.risk-siege { stroke: rgba(151,61,45,.78); stroke-width: 1.45; }
 .frontline-ring.risk-critical, .frontline-ring.risk-occupied { stroke: rgba(132,43,35,.92); stroke-width: 1.8; stroke-dasharray: 1.6 1.4; }
 .city-node.marker-dot.is-frontline .city-dot-halo { stroke: #965c35; stroke-width: 1.25; }

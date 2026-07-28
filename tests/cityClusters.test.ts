@@ -27,7 +27,20 @@ describe("city marker clustering", () => {
     expect(clusters.every((cluster) => cluster.cityIds.length === 1)).toBe(true);
   });
 
-  it("expands every city at close scale and remains deterministic", () => {
+  it("bounds dense chains so one overview seal never swallows a whole province", () => {
+    const chain = Array.from({ length: 9 }, (_, index) => city(`chain-${index}`, index * 8, 10));
+    const clusters = layoutCityMarkerClusters(chain, new Set(), "wide");
+    expect(clusters.length).toBeGreaterThan(1);
+    expect(Math.max(...clusters.map((cluster) => cluster.cityIds.length))).toBeLessThanOrEqual(6);
+  });
+
+  it("keeps only extremely close cities paired at the near-view scale", () => {
+    const clusters = layoutCityMarkerClusters([city("near-a", 10, 10), city("near-b", 15, 10), city("far", 40, 10)], new Set(), "close");
+    expect(clusters.find((cluster) => cluster.cityIds.includes("near-a"))?.cityIds).toHaveLength(2);
+    expect(clusters.find((cluster) => cluster.cityIds.includes("far"))?.cityIds).toHaveLength(1);
+  });
+
+  it("keeps separated close-range cities individual and remains deterministic", () => {
     const forward = layoutCityMarkerClusters(cities, new Set(), "close");
     const reverse = layoutCityMarkerClusters([...cities].reverse(), new Set(), "close");
     expect(forward.every((cluster) => cluster.cityIds.length === 1)).toBe(true);

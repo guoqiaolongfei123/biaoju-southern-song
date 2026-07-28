@@ -33,7 +33,7 @@ const KIND_PRIORITY: Record<WorldActorKind, number> = {
   merchant: 1,
 };
 
-const GROUP_DISTANCE: Record<MapDetail, number> = { wide: 22, mid: 10, close: 0 };
+const GROUP_DISTANCE: Record<MapDetail, number> = { wide: 22, mid: 10, close: 6.5 };
 const ICON_RADIUS: Record<MapDetail, number> = { wide: 10.5, mid: 7.2, close: 4.8 };
 const FIRST_RING: Record<MapDetail, number> = { wide: 16, mid: 9, close: 6 };
 
@@ -51,10 +51,11 @@ function overlapAmount(x: number, y: number, radius: number, obstacle: MapIconOb
 
 /**
  * Keeps moving road actors readable at every map scale. Overview levels merge
- * near-identical road positions into one stack, while the close level fans all
- * actors out. Every resulting icon is then moved to the nearest free compass
- * slot around its true route position, avoiding city architecture and earlier
- * actor marks without losing the underlying geographic anchor.
+ * near-identical road positions into one stack. Callers can disable grouping
+ * at the maximum zoom so close-range stacks fan back into individual actors.
+ * Every resulting icon is then moved to the nearest free compass slot around
+ * its true route position, avoiding city architecture and earlier actor marks
+ * without losing the underlying geographic anchor.
  */
 export function layoutMapActors(
   actors: readonly MapActorPoint[],

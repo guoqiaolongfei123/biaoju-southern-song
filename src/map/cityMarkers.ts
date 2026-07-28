@@ -14,9 +14,9 @@ function markerPriority(city: CityDefinition, pinned: Set<string>): number {
 }
 
 function minimumSpacing(detail: MapDetail): number {
-  if (detail === "wide") return 22;
-  if (detail === "mid") return 11;
-  return 10;
+  if (detail === "wide") return 30;
+  if (detail === "mid") return 14;
+  return 13;
 }
 
 /**
@@ -44,7 +44,8 @@ export function detailedCityIds(
     const eligible = required || city.tier === "major" || detail === "close";
     if (!eligible) continue;
 
-    const crowded = accepted.some((other) => Math.hypot(city.x - other.x, city.y - other.y) < spacing);
+    const citySpacing = detail === "close" && city.tier === "major" ? 10 : spacing;
+    const crowded = accepted.some((other) => Math.hypot(city.x - other.x, city.y - other.y) < citySpacing);
     if (!required && crowded) continue;
     detailed.add(city.id);
     accepted.push(city);

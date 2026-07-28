@@ -10,8 +10,9 @@ export interface CityMarkerCluster {
   radius: number;
 }
 
-const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 19, mid: 9, close: 0 };
+const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 25, mid: 12, close: 7.5 };
 const CLUSTER_RADIUS: Record<MapDetail, number> = { wide: 7.8, mid: 5.6, close: 3.2 };
+const MAX_CLUSTER_SIZE: Record<MapDetail, number> = { wide: 6, mid: 4, close: 2 };
 
 function cityPriority(city: CityDefinition): number {
   return city.tier === "capital" ? 3 : city.tier === "major" ? 2 : 1;
@@ -22,8 +23,9 @@ function cityPriority(city: CityDefinition): number {
  * selected city, offices and route waypoints are supplied in `protectedCityIds`,
  * so they always keep an independent marker. `clusterGroup` can keep rival
  * factions in separate seals even when their border cities are geographically
- * close. Overview groups are connected components rather than paint-order
- * buckets, making the result stable when source data changes.
+ * close. A bounded, centroid-based group is used instead of an unbounded
+ * connected component: a chain of neighbouring Jiangnan cities can no longer
+ * collapse half a province into one enormous seal.
  */
 export function layoutCityMarkerClusters(
   cities: readonly CityDefinition[],
@@ -33,26 +35,29 @@ export function layoutCityMarkerClusters(
 ): CityMarkerCluster[] {
   const compact = cities
     .filter((city) => !protectedCityIds.has(city.id))
-    .sort((a, b) => a.id.localeCompare(b.id));
+    .sort((a, b) => a.x - b.x || a.y - b.y || a.id.localeCompare(b.id));
   const threshold = CLUSTER_DISTANCE[detail];
   const visited = new Set<string>();
   const groups: CityDefinition[][] = [];
 
   for (const seed of compact) {
     if (visited.has(seed.id)) continue;
-    const group: CityDefinition[] = [];
-    const queue = [seed];
+    const group: CityDefinition[] = [seed];
     visited.add(seed.id);
-    while (queue.length) {
-      const current = queue.shift()!;
-      group.push(current);
-      if (threshold <= 0) continue;
-      for (const candidate of compact) {
-        if (visited.has(candidate.id)) continue;
-        if (clusterGroup(candidate) !== clusterGroup(current)) continue;
-        if (Math.hypot(candidate.x - current.x, candidate.y - current.y) >= threshold) continue;
+    if (threshold > 0) {
+      const candidates = compact
+        .filter((candidate) => !visited.has(candidate.id) && clusterGroup(candidate) === clusterGroup(seed))
+        .sort((a, b) => Math.hypot(a.x - seed.x, a.y - seed.y) - Math.hypot(b.x - seed.x, b.y - seed.y) || a.id.localeCompare(b.id));
+      for (const candidate of candidates) {
+        if (group.length >= MAX_CLUSTER_SIZE[detail]) break;
+        const centerX = group.reduce((sum, city) => sum + city.x, 0) / group.length;
+        const centerY = group.reduce((sum, city) => sum + city.y, 0) / group.length;
+        const nearSeed = Math.hypot(candidate.x - seed.x, candidate.y - seed.y) < threshold;
+        const nearCenter = Math.hypot(candidate.x - centerX, candidate.y - centerY) < threshold * .82;
+        const compactSpan = group.every((city) => Math.hypot(candidate.x - city.x, candidate.y - city.y) < threshold * 1.35);
+        if (!nearSeed || !nearCenter || !compactSpan) continue;
+        group.push(candidate);
         visited.add(candidate.id);
-        queue.push(candidate);
       }
     }
     groups.push(group);
