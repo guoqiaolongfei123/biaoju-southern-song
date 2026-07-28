@@ -13,7 +13,7 @@ import { roadInfluenceSnapshot } from "../core/roadPowerContent";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
-import { layoutCityMarkerClusters } from "../map/cityClusters";
+import { cityClusterCalloutPlacement, layoutCityMarkerClusters } from "../map/cityClusters";
 import { detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
 import { layoutMapActors, type MapIconObstacle } from "../map/mapIconLayout";
 import { layoutRouteLandmarks } from "../map/routeLandmarkLayout";
@@ -654,6 +654,7 @@ export default function WorldMap({
     .sort((a, b) => b.severity - a.severity || a.region.id.localeCompare(b.region.id))
     .slice(0, 3), [regionalWeather]);
   const adverseWeatherCount = useMemo(() => regionalWeather.filter((weather) => weather.kind !== "clear").length, [regionalWeather]);
+  const knownRoadIssueCount = useMemo(() => ROUTES.filter((route) => (game.routeIntel[route.id]?.knownCondition ?? "clear") !== "clear").length, [game.routeIntel]);
   const overlayLabelObstacles = useMemo<MapIconObstacle[]>(() => [
     ...cityClusterObstacles,
     ...routeBadgeObstacles,
@@ -855,8 +856,8 @@ export default function WorldMap({
         </div>
         <div className="map-layer-tools" aria-label="地图信息图层">
           <button className={mapLayer === "overview" ? "active" : ""} aria-pressed={mapLayer === "overview"} onClick={() => setMapLayer("overview")}>通览</button>
-          <button className={mapLayer === "roads" ? "active" : ""} aria-pressed={mapLayer === "roads"} onClick={() => setMapLayer("roads")}>驿路</button>
-          <button className={mapLayer === "weather" ? "active" : ""} aria-pressed={mapLayer === "weather"} onClick={() => setMapLayer("weather")}>天候</button>
+          <button className={mapLayer === "roads" ? "active" : ""} aria-label={`驿路图层，${knownRoadIssueCount}处已知异状`} aria-pressed={mapLayer === "roads"} onClick={() => setMapLayer("roads")}><span>驿路</span>{knownRoadIssueCount > 0 && <em aria-hidden="true">{knownRoadIssueCount}</em>}</button>
+          <button className={mapLayer === "weather" ? "active" : ""} aria-label={`天候图层，${adverseWeatherCount}处恶候`} aria-pressed={mapLayer === "weather"} onClick={() => setMapLayer("weather")}><span>天候</span>{adverseWeatherCount > 0 && <em aria-hidden="true">{adverseWeatherCount}</em>}</button>
         </div>
         <div className="map-zoom-tools">
           <button aria-label="缩小地图" title="缩小" onClick={() => zoomBy(1.22)}>−</button>
@@ -1459,34 +1460,45 @@ export default function WorldMap({
             const markerY = markerLayout?.markerY ?? cluster.y;
             const anchorDx = cluster.x - markerX;
             const anchorDy = cluster.y - markerY;
+            const callout = cityClusterCalloutPlacement({ x: markerX, y: markerY, radius: cluster.radius }, viewport, mapDetail);
             return (
               <g
                 key={cluster.id}
-                className={`city-cluster ${clusterOwners.length > 1 ? "is-mixed-control" : ""}`}
+                className="city-cluster-wrap"
                 transform={`translate(${markerX} ${markerY})`}
-                role="button"
-                tabIndex={0}
-                aria-label={`${names}，共${cluster.cityIds.length}处城驿，${ownerNames}实控，点击展开各城`}
                 style={{ color: faction.color }}
-                onClick={(event) => { event.stopPropagation(); expandCityCluster(cluster.cityIds); }}
-                onKeyDown={(event) => {
-                  if (event.key !== "Enter" && event.key !== " ") return;
-                  event.preventDefault();
-                  expandCityCluster(cluster.cityIds);
-                }}
               >
-                {markerLayout?.displaced && <g className="settlement-anchor" aria-hidden="true">
-                  <path d={`M0 0 L${anchorDx} ${anchorDy}`} />
-                  <circle cx={anchorDx} cy={anchorDy} r="1.45" />
-                </g>}
-                <circle className="city-cluster-halo" r={cluster.radius + 3.2} />
-                <path className="city-cluster-paper" d={`M0 ${-cluster.radius} L${cluster.radius} 0 L0 ${cluster.radius} L${-cluster.radius} 0 Z`} />
-                <circle className="city-cluster-core" r={cluster.radius * .56} />
-                <text y={cluster.radius * .23} textAnchor="middle">{cluster.cityIds.length}</text>
-                <g className="city-cluster-factions" transform={`translate(${-(clusterOwners.length - 1) * 2.1} ${cluster.radius + 3.5})`} aria-hidden="true">
-                  {clusterOwners.map((owner, index) => <circle key={owner} cx={index * 4.2} r="1.65" fill={FACTIONS[owner].color} />)}
+                <g
+                  className={`city-cluster ${clusterOwners.length > 1 ? "is-mixed-control" : ""}`}
+                  role="button"
+                  tabIndex={0}
+                  aria-label={`${names}，共${cluster.cityIds.length}处城驿，${ownerNames}实控，点击展开各城`}
+                  onClick={(event) => { event.stopPropagation(); expandCityCluster(cluster.cityIds); }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    expandCityCluster(cluster.cityIds);
+                  }}
+                >
+                  {markerLayout?.displaced && <g className="settlement-anchor" aria-hidden="true">
+                    <path d={`M0 0 L${anchorDx} ${anchorDy}`} />
+                    <circle cx={anchorDx} cy={anchorDy} r="1.45" />
+                  </g>}
+                  <circle className="city-cluster-halo" r={cluster.radius + 3.2} />
+                  <path className="city-cluster-paper" d={`M0 ${-cluster.radius} L${cluster.radius} 0 L0 ${cluster.radius} L${-cluster.radius} 0 Z`} />
+                  <circle className="city-cluster-core" r={cluster.radius * .56} />
+                  <text y={cluster.radius * .23} textAnchor="middle">{cluster.cityIds.length}</text>
+                  <g className="city-cluster-factions" transform={`translate(${-(clusterOwners.length - 1) * 2.1} ${cluster.radius + 3.5})`} aria-hidden="true">
+                    {clusterOwners.map((owner, index) => <circle key={owner} cx={index * 4.2} r="1.65" fill={FACTIONS[owner].color} />)}
+                  </g>
+                  <title>{names} · {ownerNames}实控 · 合并显示 {cluster.cityIds.length} 处 · 点击放大展开</title>
                 </g>
-                <title>{names} · {ownerNames}实控 · 合并显示 {cluster.cityIds.length} 处 · 点击放大展开</title>
+                <g className="city-cluster-callout" transform={`translate(${callout.x} ${callout.y}) scale(${callout.scale})`} aria-hidden="true">
+                  <rect x="0" y="-14" width={callout.width} height="28" rx="1.5" />
+                  <path d="M6 -9 H22" />
+                  <text className="city-cluster-callout-name" x="7" y="1">{primary.name}等{cluster.cityIds.length}城</text>
+                  <text className="city-cluster-callout-note" x="7" y="9">{ownerNames}实控 · 点按展开</text>
+                </g>
               </g>
             );
           })}

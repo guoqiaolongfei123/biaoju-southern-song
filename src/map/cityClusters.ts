@@ -10,12 +10,37 @@ export interface CityMarkerCluster {
   radius: number;
 }
 
+export interface CityClusterCalloutPlacement {
+  x: number;
+  y: number;
+  scale: number;
+  width: number;
+}
+
 const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 54, mid: 28, close: 16 };
 const CLUSTER_RADIUS: Record<MapDetail, number> = { wide: 9.4, mid: 6.2, close: 3.8 };
 const MAX_CLUSTER_SIZE: Record<MapDetail, number> = { wide: 10, mid: 6, close: 5 };
 
 function cityPriority(city: CityDefinition): number {
   return city.tier === "capital" ? 3 : city.tier === "major" ? 2 : 1;
+}
+
+/** Places a transient cluster label away from the closest map edge. */
+export function cityClusterCalloutPlacement(
+  marker: Pick<CityMarkerCluster, "x" | "y" | "radius">,
+  viewport: { x: number; y: number; width: number; height: number },
+  detail: MapDetail,
+): CityClusterCalloutPlacement {
+  const scale = detail === "wide" ? 1 : detail === "mid" ? .68 : .42;
+  const width = 88;
+  const toLeft = marker.x > viewport.x + viewport.width * .62;
+  const below = marker.y < viewport.y + viewport.height * .22;
+  return {
+    x: toLeft ? -marker.radius - 5 - width * scale : marker.radius + 5,
+    y: below ? marker.radius + 15 * scale : -marker.radius - 15 * scale,
+    scale,
+    width,
+  };
 }
 
 /**

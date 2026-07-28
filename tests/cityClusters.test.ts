@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CityDefinition } from "../src/core/types";
-import { layoutCityMarkerClusters } from "../src/map/cityClusters";
+import { cityClusterCalloutPlacement, layoutCityMarkerClusters } from "../src/map/cityClusters";
 
 const city = (id: string, x: number, y: number, tier: CityDefinition["tier"] = "station"): CityDefinition => ({
   id, name: id, subtitle: id, x, y, lon: x, lat: y, defaultOwner: "song", tier, description: "", specialties: [],
@@ -46,5 +46,17 @@ describe("city marker clustering", () => {
     const reverse = layoutCityMarkerClusters([...separated].reverse(), new Set(), "close");
     expect(forward.every((cluster) => cluster.cityIds.length === 1)).toBe(true);
     expect(reverse).toEqual(forward);
+  });
+
+  it("places transient cluster labels inward from map edges at every detail level", () => {
+    const viewport = { x: 100, y: 80, width: 320, height: 180 };
+    const right = cityClusterCalloutPlacement({ x: 390, y: 150, radius: 6 }, viewport, "close");
+    const upperLeft = cityClusterCalloutPlacement({ x: 120, y: 90, radius: 9 }, viewport, "wide");
+
+    expect(right.scale).toBe(.42);
+    expect(right.x + right.width * right.scale).toBeLessThan(-6);
+    expect(upperLeft.scale).toBe(1);
+    expect(upperLeft.x).toBeGreaterThan(9);
+    expect(upperLeft.y).toBeGreaterThan(9);
   });
 });
