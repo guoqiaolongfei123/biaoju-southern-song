@@ -9,6 +9,7 @@ import { ROUTE_LANDMARKS, routeLandmarkKind, type RouteLandmarkKind } from "../c
 import { worldActorEffectLabel } from "../core/worldActorContent";
 import { rivalBureauByActor, rivalRank, rivalRelation } from "../core/rivalContent";
 import { regionalWeatherSnapshot, weatherForCity, weatherForRoute } from "../core/weatherContent";
+import { roadInfluenceSnapshot } from "../core/roadPowerContent";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
@@ -54,6 +55,7 @@ const VIEW_BOXES: Record<MapFocus, MapViewport> = {
 
 const terrainColor = { official: "#90774e", mountain: "#74543d", river: "#52787c" };
 const terrainSeal = { official: "驿", mountain: "岭", river: "舟" };
+const roadOutcomeLabel = { toll: "纳银立契", bluff: "报号退哨", victory: "胜阵清路", defeat: "败退扬匪", sacrifice: "弃镖纵匪", patrol: "遣哨搜山" };
 const weatherMarkerOffset: Record<string, { x: number; y: number }> = {
   "tibetan-plateau": { x: 0, y: 0 },
   northwest: { x: -18, y: 11 },
@@ -122,6 +124,26 @@ function routeCurve(route: RouteDefinition) {
     mx: (from.x + to.x) / 2 + (to.y - from.y) * 0.025 + offset,
     my: (from.y + to.y) / 2 - (to.x - from.x) * 0.025 - offset,
   };
+}
+
+function routeHitPath(route: RouteDefinition) {
+  const curve = routeCurve(route);
+  const start = .13;
+  const end = .87;
+  const pointAt = (t: number) => {
+    const inverse = 1 - t;
+    return {
+      x: inverse * inverse * curve.from.x + 2 * inverse * t * curve.mx + t * t * curve.to.x,
+      y: inverse * inverse * curve.from.y + 2 * inverse * t * curve.my + t * t * curve.to.y,
+    };
+  };
+  const from = pointAt(start);
+  const to = pointAt(end);
+  const control = {
+    x: from.x + (end - start) * ((1 - start) * (curve.mx - curve.from.x) + start * (curve.to.x - curve.mx)),
+    y: from.y + (end - start) * ((1 - start) * (curve.my - curve.from.y) + start * (curve.to.y - curve.my)),
+  };
+  return `M ${from.x} ${from.y} Q ${control.x} ${control.y} ${to.x} ${to.y}`;
 }
 
 function pointOnRoute(route: RouteDefinition, progress: number, fromCityId: string) {
@@ -338,6 +360,7 @@ export default function WorldMap({
 }: WorldMapProps) {
   const [focus, setFocus] = useState<MapFocus | null>("realm");
   const [mapLayer, setMapLayer] = useState<MapLayer>("overview");
+  const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<MapViewport>(VIEW_BOXES.realm);
   const [dragging, setDragging] = useState(false);
   const [zooming, setZooming] = useState(false);
@@ -357,6 +380,14 @@ export default function WorldMap({
   const selectedCity = CITIES.find((city) => city.id === selectedCityId);
   const currentCity = CITIES.find((city) => city.id === game.currentCityId);
   const selectedWeather = selectedCity ? weatherForCity(game.seed, game.day, selectedCity) : null;
+  const selectedRoute = selectedRouteId ? ROUTES.find((route) => route.id === selectedRouteId) ?? null : null;
+  const selectedRouteIntel = selectedRoute ? game.routeIntel[selectedRoute.id] : null;
+  const selectedRouteIntelAge = selectedRoute ? Math.max(0, game.day - (selectedRouteIntel?.surveyedDay ?? -99)) : 0;
+  const selectedRouteCondition = selectedRoute ? ROUTE_CONDITION_EFFECTS[selectedRouteIntel?.knownCondition ?? "clear"] : null;
+  const selectedRouteWeather = selectedRoute ? weatherForRoute(game.seed, game.day, selectedRoute) : null;
+  const selectedRoadInfluence = selectedRoute ? roadInfluenceSnapshot(selectedRoute.id, game.routeStates[selectedRoute.id], game.day) : null;
+  const selectedRouteOwners = selectedRoute ? routeOwners(game.cities, selectedRoute) : null;
+  const selectedRouteActors = selectedRoute ? game.worldActors.filter((actor) => actor.routeId === selectedRoute.id) : [];
   const regionalWeather = useMemo(() => regionalWeatherSnapshot(game.seed, game.day), [game.seed, game.day]);
   const visibleRegionalWeather = useMemo(
     () => mapLayer === "weather" ? regionalWeather : regionalWeather.filter((weather) => weather.kind !== "clear"),
@@ -689,7 +720,7 @@ export default function WorldMap({
   }
 
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
-    if ((event.target as Element).closest(".city-node, .city-node-hit-target")) return;
+    if ((event.target as Element).closest(".city-node, .city-node-hit-target, .route-hit-target")) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     cancelWheelInteraction();
     commitViewport(viewportRef.current);
@@ -733,8 +764,18 @@ export default function WorldMap({
     if (nearest) onSelectCity(nearest.id);
   }
 
+  function inspectRoute(routeId: string) {
+    setSelectedRouteId((current) => current === routeId ? null : routeId);
+    setMapLayer("roads");
+  }
+
+  function focusRouteEndpoint(cityId: string) {
+    onSelectCity(cityId);
+    focusCityCluster([cityId]);
+  }
+
   return (
-    <div className={`map-stage historical-map map-focus-${focus ?? "custom"} map-detail-${mapDetail} map-layer-${mapLayer} ${routeCandidates.length > 0 ? "has-route-candidates" : ""} ${dragging ? "is-dragging" : ""} ${dragging || zooming ? "is-interacting" : ""}`}>
+    <div className={`map-stage historical-map map-focus-${focus ?? "custom"} map-detail-${mapDetail} map-layer-${mapLayer} ${routeCandidates.length > 0 ? "has-route-candidates" : ""} ${selectedRoute ? "has-road-ledger" : ""} ${dragging ? "is-dragging" : ""} ${dragging || zooming ? "is-interacting" : ""}`}>
       <div className="map-caption">
         <span>皇宋嘉定天下舆图</span>
         <small>城楼颜色为实控 · “界”印为异旗边路 · 无现代国境</small>
@@ -775,6 +816,36 @@ export default function WorldMap({
           <span>镖队所在<b>{currentCity.name}</b></span>
           <small>点击定位</small>
         </button>
+      )}
+      {selectedRoute && selectedRouteCondition && selectedRouteWeather && selectedRoadInfluence && selectedRouteOwners && (
+        <section className={`map-road-ledger road-tone-${selectedRoadInfluence.tone}`} aria-label={`${selectedRoute.name}驿路路簿`}>
+          <header>
+            <i>{terrainSeal[selectedRoute.terrain]}</i>
+            <span><small>驿路路簿 · {selectedRouteIntelAge <= 2 ? "新报" : selectedRouteIntelAge <= 6 ? `${selectedRouteIntelAge}日前旧报` : "仅有传闻"}</small><b>{selectedRoute.name}</b></span>
+            <button aria-label="收起驿路路簿" onClick={() => setSelectedRouteId(null)}>×</button>
+          </header>
+          <div className="road-ledger-endpoints">
+            {[selectedRoute.from, selectedRoute.to].map((cityId, index) => <button key={cityId} onClick={() => focusRouteEndpoint(cityId)}>
+              <small>{index === 0 ? "此端" : "彼端"} · {FACTIONS[index === 0 ? selectedRouteOwners.from : selectedRouteOwners.to].short}实控</small>
+              <b>{CITIES.find((city) => city.id === cityId)?.name}</b>
+            </button>)}
+            <i>{selectedRouteOwners.from === selectedRouteOwners.to ? "同境" : "异旗边路"}</i>
+          </div>
+          <div className="road-ledger-metrics">
+            <span><small>基准脚程</small><b>{selectedRoute.days} 日</b></span>
+            <span><small>已知路险</small><b>{selectedRouteIntel?.knownDanger ?? selectedRoute.danger}</b></span>
+            <span><small>今日天候</small><b>{selectedRouteWeather.seal}·{selectedRouteWeather.label}</b></span>
+            <span><small>熟路趟数</small><b>{selectedRouteIntel?.trips ?? 0} 趟</b></span>
+          </div>
+          <div className="road-ledger-power">
+            <i>{selectedRoadInfluence.seal}</i>
+            <span><small>{selectedRoadInfluence.power.name} · 匪势 {selectedRoadInfluence.pressure}/100</small><b>{selectedRoadInfluence.label}{selectedRoadInfluence.effectiveUntilDay ? ` · 至第 ${selectedRoadInfluence.effectiveUntilDay} 日` : ""}</b><p>{selectedRoadInfluence.note}</p></span>
+          </div>
+          <footer>
+            <span><b>{selectedRouteCondition.seal}·{selectedRouteCondition.label}</b><small>{selectedRouteCondition.description}</small></span>
+            <span><b>{selectedRouteActors.length ? `${selectedRouteActors.length} 支行旅在路` : "路面未见行旅"}</b><small>{selectedRoadInfluence.lastOutcome ? `上次处置：${roadOutcomeLabel[selectedRoadInfluence.lastOutcome]} · 第 ${selectedRoadInfluence.lastDay} 日` : "尚无本号处置记录"}</small></span>
+          </footer>
+        </section>
       )}
       <div className="map-detail-readout" aria-live="polite">
         <b>{mapLayer === "roads" ? "驿路图层" : mapLayer === "weather" ? "天候图层" : mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
@@ -961,7 +1032,11 @@ export default function WorldMap({
             const borderRoute = routeCrossesPoliticalBorder(game.cities, route);
             const routeSealScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .7 : .48;
             return (
-              <g key={route.id} className={`route route-${route.terrain} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} ${intelClass} ${active ? "is-active" : ""}`}>
+              <g
+                key={route.id}
+                className={`route route-${route.terrain} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} road-tone-${roadInfluenceSnapshot(route.id, game.routeStates[route.id], game.day).tone} ${intelClass} ${active ? "is-active" : ""} ${selectedRouteId === route.id ? "is-inspected" : ""}`}
+                aria-hidden="true"
+              >
                 <path className="route-hit" d={path} />
                 <path className="route-shadow" d={path} />
                 <path className="route-casing" d={path} />
@@ -1270,6 +1345,28 @@ export default function WorldMap({
               </g>
             );
           })}
+        </g>
+
+        <g className="route-hit-layer" aria-label="可查阅驿路">
+          {ROUTES.map((route) => (
+            <path
+              key={route.id}
+              className="route-hit-target"
+              d={routeHitPath(route)}
+              role="button"
+              tabIndex={0}
+              aria-label={`查看${route.name}驿路路簿`}
+              onClick={(event) => { event.stopPropagation(); inspectRoute(route.id); }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" || event.key === " ") {
+                  event.preventDefault();
+                  inspectRoute(route.id);
+                }
+              }}
+            >
+              <title>查看{route.name}驿路路簿</title>
+            </path>
+          ))}
         </g>
 
         {selectedCity && (

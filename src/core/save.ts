@@ -18,6 +18,7 @@ import { LEGACY_BOONS, normalizeLegacyState } from "./legacyContent";
 import { normalizeLeaderProgression } from "./leaderContent";
 import { clampJianghuReputation } from "./jianghuContent";
 import { normalizeRivalBureaus } from "./rivalContent";
+import { normalizeRouteInfluence } from "./roadPowerContent";
 
 const DB_NAME = "biaoju-saves";
 const STORE_NAME = "games";
@@ -144,7 +145,21 @@ export function migrateSavedGame(value: unknown): GameState | null {
   const recruitPool = Array.isArray(saved.recruitPool)
     ? legacy.recruitPool.map((member) => normalizeCrewMember(member, legacy.currentCityId))
     : generatedRecruits.recruits;
-  const routeStates = saved.routeStates && typeof saved.routeStates === "object" ? legacy.routeStates : createInitialRouteStates();
+  const initialRouteStates = createInitialRouteStates();
+  const savedRouteStates = saved.routeStates && typeof saved.routeStates === "object" ? legacy.routeStates : initialRouteStates;
+  const routeStates = Object.fromEntries(ROUTES.map((route) => {
+    const source = savedRouteStates[route.id] ?? initialRouteStates[route.id];
+    const influence = normalizeRouteInfluence(route.id, source);
+    return [route.id, {
+      ...initialRouteStates[route.id],
+      ...source,
+      banditPressure: influence.pressure,
+      passageUntilDay: influence.passageUntilDay,
+      suppressedUntilDay: influence.suppressedUntilDay,
+      lastBanditOutcome: influence.lastOutcome,
+      lastBanditDay: influence.lastDay,
+    }];
+  }));
   const fallbackIntel = createInitialRouteIntel(cities, legacy.day, routeStates, headquartersCityId);
   const routeIntel = Object.fromEntries(ROUTES.map((route) => {
     const oldIntel = legacy.routeIntel?.[route.id];

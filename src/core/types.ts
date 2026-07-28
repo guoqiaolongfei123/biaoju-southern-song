@@ -2,6 +2,7 @@ export type FactionId = "song" | "jin" | "xixia" | "dali" | "tibetan" | "mongol"
 export type CityStatus = "prosperous" | "stable" | "tense" | "besieged" | "captured" | "famine" | "plague" | "disrupted" | "martial" | "contested" | "autonomous";
 export type RouteTerrain = "official" | "mountain" | "river";
 export type RouteCondition = "clear" | "muddy" | "flooded" | "blockaded" | "banditry";
+export type RoadInfluenceOutcome = "toll" | "bluff" | "victory" | "defeat" | "sacrifice" | "patrol";
 export type GamePhase = "map" | "planning" | "travel" | "event" | "battle" | "settlement" | "gameover";
 export type CityTier = "capital" | "major" | "station";
 export type CrewRole = "副镖头" | "趟子手" | "车把式" | "账房" | "医师" | "向导" | "厨子";
@@ -113,6 +114,11 @@ export interface RouteState {
   condition: RouteCondition;
   sinceDay: number;
   clearsDay: number | null;
+  banditPressure?: number;
+  passageUntilDay?: number;
+  suppressedUntilDay?: number;
+  lastBanditOutcome?: RoadInfluenceOutcome | null;
+  lastBanditDay?: number;
 }
 
 export interface RouteIntelState {
@@ -299,6 +305,7 @@ export interface BattleConfig {
   enemyLeaderHealthMultiplier?: number;
   boarderHealthMultiplier?: number;
   routeName: string;
+  roadPowerRouteId?: string;
   vehicleName?: string;
   horseName?: string;
   cartArmor?: number;

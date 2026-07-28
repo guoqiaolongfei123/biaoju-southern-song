@@ -60,6 +60,7 @@ import { CREW_DISCIPLINES, crewDisciplineById } from "./crewDisciplineContent";
 import { crewMasteryForRole } from "./crewMasteryContent";
 import { crewInjuryById, mergeCrewInjury, recoverCrewInjury } from "./injuryContent";
 import { captivityRansomFor, captivityReleaseOffer } from "./captivityContent";
+import { baseBanditPressure, normalizeRouteInfluence, roadInfluenceSnapshot, roadPowerForRoute, updateRouteInfluence } from "./roadPowerContent";
 import { FORMATION_PROFICIENCIES, createFormationExperience, formationExperienceAwards, formationProficiencyRank, normalizeFormationExperience } from "./formationProficiency";
 import { PLAYER_LEADER_ID, createInitialLeader } from "./leaderContent";
 import { deputyBondRank } from "./deputyBondContent";
@@ -282,13 +283,15 @@ export function currentRouteDanger(game: GameState, routeId: string): number {
   const livingRoadModifier = worldActorDangerModifier(game.worldActors, routeId, game.relations);
   const weather = weatherForRoute(game.seed, game.day, route);
   const weatherModifier = weatherEffectForRoute(weather, route.terrain).dangerModifier;
-  return clampDanger(currentRouteDangerFromCities(game.cities, routeId, condition) + livingRoadModifier + weatherModifier);
+  const roadInfluenceModifier = roadInfluenceSnapshot(routeId, game.routeStates[routeId], game.day).dangerModifier;
+  return clampDanger(currentRouteDangerFromCities(game.cities, routeId, condition) + livingRoadModifier + weatherModifier + roadInfluenceModifier);
 }
 
 function currentRouteRoadDanger(game: GameState, routeId: string): number {
   const condition = effectiveRouteCondition(game.routeStates[routeId], game.day);
   const livingRoadModifier = worldActorDangerModifier(game.worldActors, routeId, game.relations);
-  return clampDanger(currentRouteDangerFromCities(game.cities, routeId, condition) + livingRoadModifier);
+  const roadInfluenceModifier = roadInfluenceSnapshot(routeId, game.routeStates[routeId], game.day).dangerModifier;
+  return clampDanger(currentRouteDangerFromCities(game.cities, routeId, condition) + livingRoadModifier + roadInfluenceModifier);
 }
 
 export function createInitialRouteStates(): Record<string, RouteState> {
@@ -302,6 +305,11 @@ export function createInitialRouteStates(): Record<string, RouteState> {
     condition: openingConditions[route.id] ?? "clear",
     sinceDay: 1,
     clearsDay: openingConditions[route.id] ? 6 : null,
+    banditPressure: Math.min(100, baseBanditPressure(route.id) + (openingConditions[route.id] === "banditry" ? 18 : 0)),
+    passageUntilDay: 0,
+    suppressedUntilDay: 0,
+    lastBanditOutcome: null,
+    lastBanditDay: 0,
   } satisfies RouteState]));
 }
 
@@ -311,7 +319,8 @@ export function createInitialRouteIntel(cities: Record<string, CityState>, day =
     const songInterior = cities[route.from].owner === "song" && cities[route.to].owner === "song";
     const surveyedDay = nearHeadquarters ? day : songInterior ? day - 3 : day - 7;
     const knownCondition = effectiveRouteCondition(routeStates[route.id], day);
-    return [route.id, { surveyedDay, knownDanger: currentRouteDangerFromCities(cities, route.id, knownCondition), trips: 0, knownCondition } satisfies RouteIntelState];
+    const influenceModifier = roadInfluenceSnapshot(route.id, routeStates[route.id], day).dangerModifier;
+    return [route.id, { surveyedDay, knownDanger: clampDanger(currentRouteDangerFromCities(cities, route.id, knownCondition) + influenceModifier), trips: 0, knownCondition } satisfies RouteIntelState];
   }));
 }
 
@@ -506,6 +515,7 @@ export function segmentTravelForecast(game: GameState, routeId: string, availabl
   const conditionEffect = ROUTE_CONDITION_EFFECTS[condition];
   const weather = weatherForRoute(game.seed, departureDay, route);
   const weatherEffect = weatherEffectForRoute(weather, route.terrain);
+  const roadInfluence = roadInfluenceSnapshot(routeId, game.routeStates[routeId], departureDay);
   const stance = travelStanceById(game.journey?.stance);
   const staminaCost = Math.max(8, Math.round(baseFatigue * wagon.fatigueMultiplier * horses.fatigueMultiplier * terrainFatigue * conditionEffect.staminaMultiplier * weatherEffect.staminaMultiplier * stance.staminaMultiplier));
   const staminaShortfall = Math.max(0, staminaCost - availableStamina);
@@ -517,6 +527,7 @@ export function segmentTravelForecast(game: GameState, routeId: string, availabl
   if (horseDays < 0) modifiers.push(`${horses.name}得地利`);
   if (condition !== "clear") modifiers.push(conditionEffect.label);
   if (weather.kind !== "clear") modifiers.push(`${weather.seal}${weather.label}`);
+  if (roadInfluence.tone !== "quiet") modifiers.push(`${roadInfluence.seal}·${roadInfluence.label}`);
   if (stance.id !== "steady") modifiers.push(stance.title);
   const conditionDelay = game.convoy.horseHp < 35 ? 1 : 0;
   if (conditionDelay) modifiers.push("马匹带伤");
@@ -980,13 +991,16 @@ function enumeratePaths(from: string, to: string, maxSegments = 6, game?: GameSt
       const weatherEffect = game
         ? weatherEffectForRoute(weatherForRoute(game.seed, departureDay, route), route.terrain)
         : { dayModifier: 0, dangerModifier: 0 };
+      const roadInfluenceModifier = game
+        ? roadInfluenceSnapshot(route.id, game.routeStates[route.id], departureDay).dangerModifier
+        : 0;
       visit(
         next,
         new Set([...visited, next]),
         [...routeIds, route.id],
         [...cityIds, next],
         days + route.days + effect.dayModifier + weatherEffect.dayModifier,
-        dangerSum + route.danger + effect.dangerModifier + weatherEffect.dangerModifier,
+        dangerSum + route.danger + effect.dangerModifier + weatherEffect.dangerModifier + roadInfluenceModifier,
       );
     }
   }
@@ -1421,9 +1435,25 @@ export function evolveRouteConditions(
 ): RouteConditionEvolution {
   const routeStates = Object.fromEntries(ROUTES.map((route) => {
     const previous = source[route.id] ?? { condition: "clear" as const, sinceDay: 1, clearsDay: null };
+    const influence = normalizeRouteInfluence(route.id, previous);
+    const baseline = baseBanditPressure(route.id);
+    const protectedRoad = influence.passageUntilDay >= targetDay || influence.suppressedUntilDay >= targetDay;
+    const drift = Math.max(1, Math.ceil(elapsedDays / 2));
+    const pressure = protectedRoad
+      ? influence.pressure
+      : influence.pressure < baseline
+        ? Math.min(baseline, influence.pressure + drift)
+        : Math.max(baseline, influence.pressure - drift);
+    const persistentInfluence = {
+      banditPressure: pressure,
+      passageUntilDay: influence.passageUntilDay,
+      suppressedUntilDay: influence.suppressedUntilDay,
+      lastBanditOutcome: influence.lastOutcome,
+      lastBanditDay: influence.lastDay,
+    };
     return [route.id, previous.clearsDay !== null && previous.clearsDay <= targetDay
-      ? { condition: "clear" as const, sinceDay: targetDay, clearsDay: null }
-      : { ...previous }];
+      ? { ...previous, ...persistentInfluence, condition: "clear" as const, sinceDay: targetDay, clearsDay: null }
+      : { ...previous, ...persistentInfluence }];
   }));
   const eventRoll = randomStep(rngState);
   let state = eventRoll.state;
@@ -1443,7 +1473,13 @@ export function evolveRouteConditions(
   else condition = typeRoll.value < .36 ? "muddy" : typeRoll.value < .72 ? "banditry" : "blockaded";
   const durationRoll = randomInt(state, 3, 6);
   state = durationRoll.state;
-  routeStates[route.id] = { condition, sinceDay: targetDay, clearsDay: targetDay + durationRoll.value };
+  routeStates[route.id] = {
+    ...routeStates[route.id],
+    condition,
+    sinceDay: targetDay,
+    clearsDay: targetDay + durationRoll.value,
+    banditPressure: condition === "banditry" ? Math.max(68, normalizeRouteInfluence(route.id, routeStates[route.id]).pressure) : routeStates[route.id].banditPressure,
+  };
   return {
     routeStates,
     rngState: state,
@@ -1987,7 +2023,11 @@ export function borderCoverForecast(game: GameState, targetFaction: FactionId): 
 }
 
 export function banditTollCost(game: GameState): number {
-  return Math.ceil(22 * principlePassageMultiplier(game) * jianghuStanding(game.jianghuReputation).tollMultiplier);
+  const routeId = game.journey?.plan.routeIds[game.journey.segmentIndex];
+  const pressureMultiplier = routeId
+    ? .8 + roadInfluenceSnapshot(routeId, game.routeStates[routeId], game.day).pressure / 140
+    : 1;
+  return Math.ceil(22 * pressureMultiplier * principlePassageMultiplier(game) * jianghuStanding(game.jianghuReputation).tollMultiplier);
 }
 
 function currentAndNextRouteIds(game: GameState): string[] {
@@ -2093,7 +2133,7 @@ export function createWorldActorEvent(game: GameState, routeId: string, actor: W
   };
 }
 
-function createEvent(game: GameState, routeId: string, travelersAtDeparture: readonly WorldActor[] = [], segmentWeather?: RegionalWeather): { event: TravelEvent; rngState: number } {
+export function createTravelEvent(game: GameState, routeId: string, travelersAtDeparture: readonly WorldActor[] = [], segmentWeather?: RegionalWeather): { event: TravelEvent; rngState: number } {
   const route = routeById(routeId);
   const weather = segmentWeather ?? weatherForRoute(game.seed, game.day, route);
   const weatherEffect = weatherEffectForRoute(weather, route.terrain);
@@ -2258,11 +2298,38 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
       },
     };
   }
+  const roadInfluence = roadInfluenceSnapshot(routeId, game.routeStates[routeId], game.day);
+  if (roadInfluence.passageActive || roadInfluence.suppressedActive) {
+    const protectedByPact = roadInfluence.passageActive;
+    return {
+      rngState: eventRoll.state,
+      event: {
+        id: `road-influence-${game.day}-${routeId}`,
+        kind: "bandits",
+        eyebrow: protectedByPact ? `${roadInfluence.power.name} · 旧契仍认` : `${roadInfluence.power.name} · 暗哨避旗`,
+        title: protectedByPact ? "寨口验过封签，主动撤开路障" : "前哨望见镖旗，转身隐入山林",
+        description: protectedByPact
+          ? `${roadInfluence.power.name}认得风云行留下的路契，本路在第 ${roadInfluence.passageUntilDay} 日前不再索银。小头目只验了封签，便让人搬开拒马。`
+          : `${roadInfluence.power.name}刚在这条路上吃过亏，余众在第 ${roadInfluence.suppressedUntilDay} 日前不敢正面拦旗。林间仍有眼线，但今日可以借势通过。`,
+        choices: [
+          choice("road-pass", protectedByPact ? "亮契照原约通行" : "压住阵脚直接通过", "不耗银、不误时，保留现有道路优势", "safe"),
+          choice(
+            "road-strengthen",
+            protectedByPact ? "添 4 两续一程交情" : "耗 1 份补给搜哨清路",
+            protectedByPact ? "把寨契再延四日，并略降本路匪势" : "把肃清期再延三日，并进一步压低匪势",
+            "safe",
+            protectedByPact ? game.silver < 4 : game.supplies < 1,
+          ),
+        ],
+      },
+    };
+  }
   const specialHandling = specialHandlingForContract(journey.contract);
   const demandedTarget = journey.contract.kind === "escort" ? "客车里的人" : journey.contract.kind === "letter" ? "藏信的匣子" : journey.contract.kind === "special" ? "那只特镖封匣" : "那辆货车";
   const sacrificeLabel = journey.contract.kind === "escort" ? "交出护送之人" : journey.contract.kind === "letter" ? "焚信弃匣脱身" : journey.contract.kind === "special" ? "弃下特镖脱身" : "弃下一箱镖货";
   const sacrificeHint = journey.contract.kind === "cargo" ? "货物完整度大损，但人车可走" : journey.contract.kind === "special" ? `${specialHandling?.name ?? "特镖"}几乎必定毁约，但镖队免战` : "此镖几乎必定失败，但镖队免战";
   const tollCost = banditTollCost(game);
+  const roadPower = roadInfluence.power;
   const pursuit = route.terrain !== "river" && journey.contract.kind !== "escort" && eventRoll.value > rumorThreshold + (1 - rumorThreshold) * 0.54;
   if (pursuit) {
     const stolenItem = journey.contract.kind === "letter" ? "封着暗记的信匣" : journey.contract.kind === "special" ? `${specialHandling?.name ?? "特镖"}封匣` : journey.contract.complication === "fragile" ? "一匣易碎镖物" : "头车上的红封镖匣";
@@ -2273,7 +2340,7 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
         id: `pursuit-${game.day}-${routeId}`,
         kind: "bandits",
         battleMode: "pursuit",
-        eyebrow: "前哨忽然回马高喊",
+        eyebrow: `${roadPower.name}前哨忽然回马高喊`,
         title: "快腿贼已经夺镖先逃",
         description: `剪径客用滚木截住后车，一名快腿贼趁乱夺走${stolenItem}，正沿${route.name}向前方山口逃去。其余匪徒回身阻路；此刻分人追镖，剩余车阵便会变薄。`,
         choices: [
@@ -2288,9 +2355,9 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
     event: {
       id: `bandits-${game.day}-${routeId}`,
       kind: "bandits",
-      eyebrow: stance.id === "haste" ? "疾驰扬尘引来三声唿哨" : stance.id === "covert" ? "暗路尽头仍有人候着" : "林中响起三声唿哨",
+      eyebrow: `${roadPower.name} · ${stance.id === "haste" ? "疾驰扬尘引来三声唿哨" : stance.id === "covert" ? "暗路尽头仍有人候着" : "林中响起三声唿哨"}`,
       title: "有人要借你的镖银买路",
-      description: `十余名剪径客堵住${route.name}，却没有急着杀人。他们的眼睛一直盯着${demandedTarget}。`,
+      description: `${roadPower.name}的十余名剪径客堵住${route.name}，却没有急着杀人。他们的眼睛一直盯着${demandedTarget}。`,
       choices: [
         choice("toll", `付 ${tollCost} 两买路`, `银钱换时间，江湖声望受损${hasPrinciple(game, "peaceful-road") ? "（以和开路）" : ""}`, "safe"),
         choice("bluff", "报字号压阵", `以「${jianghuStanding(game.jianghuReputation).label}」旗号震退山寨；江湖越闻名越稳`, "risk"),
@@ -2348,7 +2415,7 @@ export function advanceTravel(game: GameState): GameState {
       ? [`【特镖养护】${departureWeather.label}与本段脚程使「${next.journey!.contract.cargo}」自然损耗 ${specialCargoDamage}%，现余 ${Math.max(0, next.convoy.cargoIntegrity - (vulnerableCargo ? shortfall * 5 : 0) - specialCargoDamage)}%。`, ...next.news].slice(0, 6)
       : next.news,
   };
-  const created = createEvent(next, routeId, travelersAtDeparture, departureWeather);
+  const created = createTravelEvent(next, routeId, travelersAtDeparture, departureWeather);
   return { ...next, rngState: created.rngState, currentEvent: created.event, phase: "event" };
 }
 
@@ -2357,11 +2424,12 @@ function buildBattle(game: GameState): GameState {
   const stance = travelStanceById(journey.stance);
   const routeId = journey.plan.routeIds[journey.segmentIndex];
   const route = routeById(routeId);
+  const roadPower = roadPowerForRoute(routeId);
   const encounteredActor = game.currentEvent?.actorId ? game.worldActors.find((actor) => actor.id === game.currentEvent?.actorId) : undefined;
   const enemyFaction = game.currentEvent?.kind === "caravan" && encounteredActor
     ? encounteredActor.name
     : game.currentEvent?.kind === "bandits"
-    ? "拦路山寨"
+    ? roadPower.name
     : game.currentEvent?.kind === "border"
       ? `${FACTIONS[game.cities[journey.plan.cityIds[journey.segmentIndex + 1]].owner].name}巡骑`
       : game.currentEvent?.kind === "roadblock"
@@ -2409,6 +2477,7 @@ function buildBattle(game: GameState): GameState {
       enemyFaction,
       enemyLeaderName: game.currentEvent?.kind === "bandits" && danger >= 60 ? "山寨匪首" : undefined,
       routeName: route.name,
+      roadPowerRouteId: game.currentEvent?.kind === "bandits" ? routeId : undefined,
       vehicleName: WAGONS[game.convoy.wagonId].name,
       horseName: HORSE_TEAMS[game.convoy.horseTeamId].name,
       cartArmor: wagonDamageMultiplier(game.convoy),
@@ -3112,16 +3181,91 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
     const cartDamage = Math.max(1, Math.round(rawCartDamage * wagonDamageMultiplier(next.convoy)));
     const supplyCost = covert && journeyHasRole(next, "向导") ? 0 : covert ? 1 : 2;
     next = { ...next, day: next.day + 1, supplies: Math.max(0, next.supplies - supplyCost), convoy: { ...next.convoy, cartHp: Math.max(10, next.convoy.cartHp - cartDamage), horseStamina: Math.max(0, next.convoy.horseStamina - (covert ? 5 : 8)) } };
+  } else if (kind === "bandits" && choiceId === "road-pass") {
+    const routeId = next.journey!.plan.routeIds[next.journey!.segmentIndex];
+    const influence = roadInfluenceSnapshot(routeId, next.routeStates[routeId], next.day);
+    next = {
+      ...next,
+      news: [`【驿路借势】${influence.power.name}${influence.passageActive ? "验过寨契后撤开路障" : "余众望旗避让"}，风云行未再付银便通过${routeById(routeId).name}。`, ...next.news].slice(0, 6),
+    };
+  } else if (kind === "bandits" && choiceId === "road-strengthen") {
+    const routeId = next.journey!.plan.routeIds[next.journey!.segmentIndex];
+    const state = next.routeStates[routeId];
+    const influence = roadInfluenceSnapshot(routeId, state, next.day);
+    if (influence.passageActive) {
+      if (next.silver < 4) return next;
+      next = {
+        ...next,
+        silver: next.silver - 4,
+        routeStates: {
+          ...next.routeStates,
+          [routeId]: updateRouteInfluence(routeId, state, next.day, {
+            pressureDelta: -3,
+            passageUntilDay: Math.max(next.day, influence.passageUntilDay) + 4,
+            outcome: "toll",
+          }),
+        },
+        news: [`【寨契续押】风云行添四两茶钱，${influence.power.name}把${routeById(routeId).name}的过路封签续到第 ${Math.max(next.day, influence.passageUntilDay) + 4} 日。`, ...next.news].slice(0, 6),
+      };
+    } else {
+      if (next.supplies < 1) return next;
+      const updatedRouteState = updateRouteInfluence(routeId, state, next.day, {
+        pressureDelta: -6,
+        suppressedUntilDay: Math.max(next.day, influence.suppressedUntilDay) + 3,
+        outcome: "patrol",
+      });
+      next = {
+        ...next,
+        supplies: next.supplies - 1,
+        routeStates: {
+          ...next.routeStates,
+          [routeId]: updatedRouteState,
+        },
+        news: [`【乘势清路】镖队分粮遣哨，把${influence.power.name}余下的暗桩再拔一层；${routeById(routeId).name}肃清至第 ${Math.max(next.day, influence.suppressedUntilDay) + 3} 日。`, ...next.news].slice(0, 6),
+      };
+      next = { ...next, routeIntel: refreshedIntel(next, [routeId]) };
+    }
   } else if (kind === "bandits" && choiceId === "toll") {
     const tollCost = banditTollCost(next);
     if (next.silver < tollCost) return buildBattle({ ...next, news: ["【山道失算】买路银凑不齐，剪径客已经拔刀。", ...next.news].slice(0, 6) });
-    next = advanceConduct({ ...next, silver: Math.max(0, next.silver - tollCost), jianghuReputation: clampJianghuReputation(next.jianghuReputation - 1) }, { peacefulPassages: 1 });
+    const routeId = next.journey!.plan.routeIds[next.journey!.segmentIndex];
+    const state = next.routeStates[routeId];
+    const influence = roadInfluenceSnapshot(routeId, state, next.day);
+    next = advanceConduct({
+      ...next,
+      silver: Math.max(0, next.silver - tollCost),
+      jianghuReputation: clampJianghuReputation(next.jianghuReputation - 1),
+      routeStates: {
+        ...next.routeStates,
+        [routeId]: updateRouteInfluence(routeId, state, next.day, {
+          pressureDelta: -4,
+          passageUntilDay: next.day + 7,
+          outcome: "toll",
+        }),
+      },
+      news: [`【寨契落印】${influence.power.name}收下 ${tollCost} 两，在${routeById(routeId).name}留下七日通行封签；重走此路无需再次买路。`, ...next.news].slice(0, 6),
+    }, { peacefulPassages: 1 });
   } else if (kind === "bandits" && choiceId === "bluff") {
     const roll = randomStep(next.rngState);
     next = { ...next, rngState: roll.state };
     const standing = jianghuStanding(next.jianghuReputation);
     if (roll.value + next.jianghuReputation / 180 + standing.bluffBonus < 0.48) return buildBattle(next);
-    next = { ...next, jianghuReputation: clampJianghuReputation(next.jianghuReputation + 2), news: ["【江湖传闻】风云行只报字号，便让一寨人马让开山道；江湖声望 +2。", ...next.news].slice(0, 6) };
+    const routeId = next.journey!.plan.routeIds[next.journey!.segmentIndex];
+    const state = next.routeStates[routeId];
+    const influence = roadInfluenceSnapshot(routeId, state, next.day);
+    next = {
+      ...next,
+      jianghuReputation: clampJianghuReputation(next.jianghuReputation + 2),
+      routeStates: {
+        ...next.routeStates,
+        [routeId]: updateRouteInfluence(routeId, state, next.day, {
+          pressureDelta: -7,
+          suppressedUntilDay: next.day + 4,
+          outcome: "bluff",
+        }),
+      },
+      news: [`【江湖传闻】风云行只报字号，便让${influence.power.name}撤哨四日；江湖声望 +2。`, ...next.news].slice(0, 6),
+    };
   } else if (kind === "bandits" && choiceId === "sacrifice") {
     const contractKind = next.journey!.contract.kind;
     const pursuitLoss = game.currentEvent.battleMode === "pursuit"
@@ -3129,11 +3273,22 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
       : contractKind === "cargo" ? 45 : 100;
     const integrity = Math.max(0, next.convoy.cargoIntegrity - pursuitLoss);
     const reputationLoss = contractKind === "escort" ? 8 : contractKind === "letter" ? 5 : 3;
+    const routeId = next.journey!.plan.routeIds[next.journey!.segmentIndex];
+    const state = next.routeStates[routeId];
     next = {
       ...next,
       reputation: Math.max(0, next.reputation - reputationLoss),
       jianghuReputation: clampJianghuReputation(next.jianghuReputation - (contractKind === "escort" ? 5 : contractKind === "letter" ? 3 : 2)),
       journey: contractKind === "escort" ? { ...next.journey!, escortHealth: 0 } : next.journey,
+      routeStates: {
+        ...next.routeStates,
+        [routeId]: updateRouteInfluence(routeId, state, next.day, {
+          pressureDelta: 12,
+          passageUntilDay: 0,
+          suppressedUntilDay: 0,
+          outcome: "sacrifice",
+        }),
+      },
       convoy: { ...next.convoy, cargoIntegrity: contractKind === "escort" ? next.convoy.cargoIntegrity : integrity, sealIntact: contractKind === "cargo" ? next.convoy.sealIntact : false, morale: Math.max(0, next.convoy.morale - 12) },
       news: [`【弃镖脱身】风云行为保全人手舍下${contractKind === "escort" ? "护送之人" : contractKind === "letter" ? "密函" : game.currentEvent.battleMode === "pursuit" ? "被夺走的镖匣" : "部分镖货"}，江湖议论纷纷。`, ...next.news].slice(0, 6),
     };
@@ -3292,6 +3447,41 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
       captureReports.push(`${captured.name}在${route.name}断后失陷，被${captivity.captor}扣走；须到${endpoints}设法赎回`);
     }
   }
+  let routeStates = game.routeStates;
+  const roadAftermathReports: string[] = [];
+  const roadPowerRouteId = game.pendingBattle.roadPowerRouteId;
+  if (roadPowerRouteId && routeStates[roadPowerRouteId]) {
+    const state = routeStates[roadPowerRouteId];
+    const power = roadPowerForRoute(roadPowerRouteId);
+    if (result.outcome === "complete") {
+      const suppressionDays = result.enemyLeaderDefeated ? 12 : 6;
+      const influenced = updateRouteInfluence(roadPowerRouteId, state, game.day, {
+        pressureDelta: result.enemyLeaderDefeated ? -24 : -13,
+        suppressedUntilDay: game.day + suppressionDays,
+        passageUntilDay: 0,
+        outcome: "victory",
+      });
+      routeStates = {
+        ...routeStates,
+        [roadPowerRouteId]: state.condition === "banditry"
+          ? { ...influenced, condition: "clear", sinceDay: game.day, clearsDay: null }
+          : influenced,
+      };
+      roadAftermathReports.push(`${power.name}${result.enemyLeaderDefeated ? "寨主伏诛，沿路暗哨尽撤" : "折损人手，暂时收旗"}；${routeById(roadPowerRouteId).name}肃清至第 ${game.day + suppressionDays} 日`);
+    } else {
+      const pressureGain = result.outcome === "defeat" ? 15 : 9;
+      routeStates = {
+        ...routeStates,
+        [roadPowerRouteId]: updateRouteInfluence(roadPowerRouteId, state, game.day, {
+          pressureDelta: pressureGain,
+          passageUntilDay: 0,
+          suppressedUntilDay: 0,
+          outcome: "defeat",
+        }),
+      };
+      roadAftermathReports.push(`${power.name}借镖队败退扬势，${routeById(roadPowerRouteId).name}匪势 +${pressureGain}`);
+    }
+  }
   const guardsFit = journey?.crewIds.filter((id) => {
     const member = crew.find((candidate) => candidate.id === id);
     return Boolean(member && !member.captivity && member.hp >= 20);
@@ -3301,6 +3491,7 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
     ...((result.cartRepair ?? 0) > 0 ? [`【阵前抢修】车把式在交战中抢回 ${(result.cartRepair ?? 0)} 分车况，镖车得以继续赶路。`] : []),
     ...(result.clientDowned ? [`【活镖失守】${game.pendingBattle.escortClient?.name ?? "护送之人"}重伤倒地，此单已难照原约交割。`] : (result.clientDamage ?? 0) > 0 ? [`【活镖负伤】${game.pendingBattle.escortClient?.name ?? "护送之人"}在阵中受伤 ${(result.clientDamage ?? 0)} 分。`] : []),
     ...(result.bannerLost ? ["【镖旗失守】风云行旗号被夺，商业信用 -2、江湖声望 -5。"] : result.bannerRecovered ? ["【夺旗复得】夺旗手未能脱阵，众人重新把镖旗立回车前。"] : []),
+    ...(roadAftermathReports.length ? [`【驿路余波】${roadAftermathReports.join("；")}。后续路险与拦路处置已经改变。`] : []),
     ...(captureReports.length ? [`【队员被俘】${captureReports.join("；")}。此人已从随行点将中移除。`] : []),
     ...(rankReports.length ? [`【人物晋阶】${rankReports.join("；")}。新的战职、绝活与装备门槛已随名望解开。`] : []),
     ...(leaderExperienceGain > 0 ? [`【总镖头记功】${game.leader.name}${result.leaderContribution ? `「${result.leaderContribution.title}」` : ""}阅历 +${leaderExperienceGain}${leaderFormationReports.length ? `；${leaderFormationReports.join("；")}` : ""}。`] : []),
@@ -3321,6 +3512,7 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
     activeCrewIds,
     journey,
     convoy: { ...convoy, guardsFit },
+    routeStates,
     pendingBattle: null,
     news: battleNews.length ? [...battleNews, ...game.news].slice(0, 6) : game.news,
   });

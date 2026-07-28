@@ -78,6 +78,7 @@ import { frontlineSituation } from "./core/frontlineContent";
 import { weatherForCity } from "./core/weatherContent";
 import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from "./core/jianghuContent";
 import { rivalBureauViews, rivalRank } from "./core/rivalContent";
+import { updateRouteInfluence } from "./core/roadPowerContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { JourneyDispositionId } from "./core/game";
 import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
@@ -658,6 +659,45 @@ function developmentCaptivityPreviewActive(): boolean {
   return new URLSearchParams(window.location.search).get("map-preview") === "captivity";
 }
 
+function developmentRoadInfluencePreviewActive(): boolean {
+  if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+  return new URLSearchParams(window.location.search).get("map-preview") === "road-influence";
+}
+
+function developmentRoadInfluencePreviewGame(game: GameState): GameState {
+  if (!developmentRoadInfluencePreviewActive()) return game;
+  const preview = createInitialGame(1208, "linan-guild");
+  const pactRouteId = "linan-jiankang";
+  const clearedRouteId = "jiankang-pingjiang";
+  const hotRouteId = "xiangyang-zaoyang";
+  const pactState = updateRouteInfluence(pactRouteId, preview.routeStates[pactRouteId], 10, { pressureDelta: -5, passageUntilDay: 18, outcome: "toll" });
+  const clearedState = updateRouteInfluence(clearedRouteId, preview.routeStates[clearedRouteId], 9, { pressureDelta: -18, suppressedUntilDay: 16, outcome: "victory" });
+  const hotState = updateRouteInfluence(hotRouteId, preview.routeStates[hotRouteId], 11, { pressureDelta: 34, passageUntilDay: 0, suppressedUntilDay: 0, outcome: "defeat" });
+  return {
+    ...preview,
+    day: 12,
+    phase: "map",
+    selectedCityId: preview.currentCityId,
+    routeStates: {
+      ...preview.routeStates,
+      [pactRouteId]: pactState,
+      [clearedRouteId]: clearedState,
+      [hotRouteId]: { ...hotState, condition: "banditry", sinceDay: 11, clearsDay: 17 },
+    },
+    routeIntel: {
+      ...preview.routeIntel,
+      [pactRouteId]: { ...preview.routeIntel[pactRouteId], surveyedDay: 12, knownDanger: 28 },
+      [clearedRouteId]: { ...preview.routeIntel[clearedRouteId], surveyedDay: 12, knownDanger: 18 },
+      [hotRouteId]: { ...preview.routeIntel[hotRouteId], surveyedDay: 12, knownDanger: 88, knownCondition: "banditry" },
+    },
+    news: [
+      "【寨契落印】天目青竹社已认临安至建康七日通行封签。",
+      "【驿路余波】江南东路余众蛰伏，襄北驿路却因败退匪势骤升。",
+      ...preview.news,
+    ].slice(0, 6),
+  };
+}
+
 function developmentCaptivityPreviewGame(game: GameState): GameState {
   if (!developmentCaptivityPreviewActive()) return game;
   const preview = createInitialGame(1208, "linan-guild");
@@ -1117,7 +1157,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
+    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentRoadInfluencePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
     const handle = window.setTimeout(() => {
       saveGame(game).then(() => {
         setSavePulse(true);
@@ -1219,12 +1259,12 @@ function App() {
   if (launch === "title" || !game) {
     return (
       <TitleScreen
-        hasSave={Boolean(savedGame) || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
+        hasSave={Boolean(savedGame) || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentRoadInfluencePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
         legacy={visibleLegacy}
         onNew={() => setLaunch("setup")}
         onContinue={() => {
           const source = savedGame ?? createInitialGame(1208, "linan-guild");
-          setGame(developmentRivalPreviewGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentCaptivityPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source))))))))))));
+          setGame(developmentRivalPreviewGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentRoadInfluencePreviewGame(developmentCaptivityPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source)))))))))))));
           setLaunch("game");
         }}
       />
