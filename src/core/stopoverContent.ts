@@ -1,4 +1,5 @@
 import type { CityStatus, RouteTerrain } from "./types";
+import { routeLandmarkKind, type RouteLandmark } from "./routeLandmarkContent";
 
 export interface StopoverTheme {
   seal: string;
@@ -39,7 +40,16 @@ const TROUBLED_STATUS_NOTE: Partial<Record<CityStatus, string>> = {
   contested: "城上两面旗号都有人认，谁也说不准明日归谁。",
 };
 
-export function stopoverTheme(terrain: RouteTerrain, status: CityStatus, cityName: string): StopoverTheme & { statusNote: string } {
+export function stopoverTheme(terrain: RouteTerrain, status: CityStatus, cityName: string, landmark?: RouteLandmark | null): StopoverTheme & { statusNote: string } {
   const theme = TERRAIN_STOPOVERS[terrain];
-  return { ...theme, statusNote: TROUBLED_STATUS_NOTE[status] ?? `${cityName}城外商旅往来如常，牙人愿意按市价替镖队张罗。` };
+  const statusNote = TROUBLED_STATUS_NOTE[status] ?? `${cityName}城外商旅往来如常，牙人愿意按市价替镖队张罗。`;
+  if (!landmark) return { ...theme, statusNote };
+  const kind = routeLandmarkKind(landmark.kind);
+  return {
+    seal: kind.seal,
+    eyebrow: `中途落脚 · 前路${kind.label}`,
+    title: () => `${cityName}外，${landmark.name}的路签到了`,
+    description: `${landmark.description}路签上另注“${landmark.service}”，正好可在启程前重新清点人货。`,
+    statusNote,
+  };
 }

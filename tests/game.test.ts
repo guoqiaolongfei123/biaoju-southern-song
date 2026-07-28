@@ -75,6 +75,7 @@ import { factionStanding } from "../src/core/factionContent";
 import { careerEnding, careerObjectiveProgress } from "../src/core/careerContent";
 import { advanceConduct, conductPrinciples, hasPrinciple, principleRewardMultiplier } from "../src/core/conductContent";
 import { CITIES, ROUTES } from "../src/core/data";
+import { primaryLandmarkForRoute } from "../src/core/routeLandmarkContent";
 import { migrateSavedGame } from "../src/core/save";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../src/map/cityLabels";
 import { localTradeGood, tradeDemandMultiplier } from "../src/core/tradeContent";
@@ -1315,6 +1316,9 @@ describe("镖局核心循环", () => {
     const offer = stopoverOffer(stopover)!;
     expect(offer.cityId).toBe(stopover.journey?.plan.cityIds[stopover.journey!.segmentIndex]);
     expect(offer.routeId).toBe(stopover.journey?.plan.routeIds[stopover.journey!.segmentIndex]);
+    const landmark = primaryLandmarkForRoute(offer.routeId);
+    expect(landmark).not.toBeNull();
+    expect(stopover.currentEvent?.description).toContain(landmark!.name);
 
     const steady = segmentTravelForecast(stopover, offer.routeId);
     stopover = setTravelStance(stopover, "covert");

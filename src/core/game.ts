@@ -48,6 +48,7 @@ import { originById } from "./originContent";
 import { travelStanceById } from "./travelContent";
 import { routeBorderFactions, travelCoverAssessment, travelCoverById } from "./travelCoverContent";
 import { stopoverTheme } from "./stopoverContent";
+import { primaryLandmarkForRoute } from "./routeLandmarkContent";
 import { TRADE_GOODS, localTradeGood, tradeDemandLabel, tradeSaleValue } from "./tradeContent";
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "./martialContent";
 import { martialProficiencyRank } from "./martialProficiencyContent";
@@ -1619,7 +1620,8 @@ function createStopoverEvent(game: GameState): TravelEvent {
   const city = cityById(offer.cityId);
   const cityState = game.cities[offer.cityId];
   const nextRoute = routeById(offer.routeId);
-  const theme = stopoverTheme(nextRoute.terrain, cityState.status, city.name);
+  const landmark = primaryLandmarkForRoute(offer.routeId);
+  const theme = stopoverTheme(nextRoute.terrain, cityState.status, city.name, landmark);
   const restFull = game.convoy.leaderHp >= 98 && game.convoy.horseHp >= 98 && game.convoy.horseStamina >= 96 && game.convoy.morale >= 96 && journeyCrew(game).every((member) => member.hp >= member.maxHp);
   const supplyFull = game.supplies >= 24;
   return {
@@ -1627,7 +1629,7 @@ function createStopoverEvent(game: GameState): TravelEvent {
     kind: "waystation",
     eyebrow: theme.eyebrow,
     title: theme.title(city.name),
-    description: `${theme.description}${theme.statusNote}下一程是${nextRoute.name}。镖旗尚未正式入城，不能接榜办事，却可以在这里重新定下脚程。`,
+    description: `${theme.description}${theme.statusNote}下一程是${nextRoute.name}${landmark ? `，将经过${landmark.name}` : ""}。镖旗尚未正式入城，不能接榜办事，却可以在这里重新定下脚程。`,
     choices: [
       choice("stop-rest", "住驿整顿一日", restFull ? "人马气力俱足，无须再误一日" : game.supplies < 1 ? "至少需要 1 份余粮才能安顿人马" : "耗 1 份补给；恢复马力、士气与随行伤势", "safe", restFull || game.supplies < 1),
       choice("stop-stock", `托牙人补 ${offer.supplyGain} 份路粮`, supplyFull ? "粮袋已装满" : game.silver < offer.supplyCost ? `需 ${offer.supplyCost} 两，现银不足` : `花 ${offer.supplyCost} 两，不额外耗时`, "safe", supplyFull || game.silver < offer.supplyCost),
@@ -2366,6 +2368,8 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
     const picked = game.currentEvent.choices.find((item) => item.id === choiceId);
     if (!offer || !picked || picked.disabled) return next;
     const cityName = cityById(offer.cityId).name;
+    const landmark = primaryLandmarkForRoute(offer.routeId);
+    const roadSite = landmark?.name ?? cityName;
     if (choiceId === "stop-rest") {
       next = withWorldAdvance(next, 1);
       const hasMedic = journeyHasRole(next, "医师");
@@ -2388,7 +2392,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
           horseHp: Math.min(100, next.convoy.horseHp + 3),
           horseStamina: Math.min(100, next.convoy.horseStamina + 34),
         },
-        news: [`【${cityName}歇脚】镖队住驿整顿一日，人马重新包扎饮喂${hasMedic ? "，随行医师也替伤员换了药" : ""}。`, ...next.news].slice(0, 6),
+        news: [`【${roadSite}前歇脚】镖队住驿整顿一日，人马重新包扎饮喂${hasMedic ? "，随行医师也替伤员换了药" : ""}。`, ...next.news].slice(0, 6),
       };
     } else if (choiceId === "stop-stock") {
       if (next.silver < offer.supplyCost || next.supplies >= 24) return next;
@@ -2396,7 +2400,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
         ...next,
         silver: next.silver - offer.supplyCost,
         supplies: Math.min(24, next.supplies + offer.supplyGain),
-        news: [`【${cityName}添粮】城外牙人送来 ${offer.supplyGain} 份路粮，收讫 ${offer.supplyCost} 两。`, ...next.news].slice(0, 6),
+        news: [`【${roadSite}添粮】城外牙人送来 ${offer.supplyGain} 份路粮，收讫 ${offer.supplyCost} 两。`, ...next.news].slice(0, 6),
       };
     } else if (choiceId === "stop-intel") {
       if (next.silver < offer.intelCost || offer.intelFresh) return next;
@@ -2404,7 +2408,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
         ...next,
         silver: next.silver - offer.intelCost,
         routeIntel: refreshedIntel(next, [offer.routeId]),
-        news: [`【${cityName}核报】${routeById(offer.routeId).name}的路况、旗号与匪情已经核到今日。`, ...next.news].slice(0, 6),
+        news: [`【${roadSite}核报】${routeById(offer.routeId).name}的路况、旗号与匪情已经核到今日。`, ...next.news].slice(0, 6),
       };
     } else if (choiceId === "stop-press") {
       next = {

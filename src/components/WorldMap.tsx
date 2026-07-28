@@ -5,6 +5,7 @@ import { CITIES, FACTIONS, ROUTES, TERRAIN_LABEL } from "../core/data";
 import { cityStatusEffect } from "../core/cityContent";
 import { frontlineSituation } from "../core/frontlineContent";
 import { ROUTE_CONDITION_EFFECTS } from "../core/routeContent";
+import { ROUTE_LANDMARKS, routeLandmarkKind, type RouteLandmarkKind } from "../core/routeLandmarkContent";
 import { worldActorEffectLabel } from "../core/worldActorContent";
 import { regionalWeatherSnapshot, weatherForCity } from "../core/weatherContent";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
@@ -12,6 +13,7 @@ import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/pr
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
 import { detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
 import { layoutMapActors, type MapIconObstacle } from "../map/mapIconLayout";
+import { layoutRouteLandmarks } from "../map/routeLandmarkLayout";
 import { politicalBorderCityIds, routeCrossesPoliticalBorder, routeOwners, splitQuadraticCurve } from "../map/politicalBorders";
 import { routeCandidateAnchorRouteId, routeCandidateCityRole, routeCandidateSeal, type MapRouteCandidate } from "../map/routeComparison";
 import {
@@ -164,6 +166,42 @@ function WorldActorGlyph({ kind }: { kind: WorldActorKind }) {
   </>;
 }
 
+function RouteLandmarkGlyph({ kind }: { kind: RouteLandmarkKind }) {
+  return <>
+    <path className="landmark-paper" d="M-8 -7.2 Q0 -9.3 8 -7.2 L8.4 6.2 Q0 8.4 -8.4 6.2 Z" />
+    {kind === "pass" && <>
+      <path className="landmark-shadow" d="M-6.2 4.7 H6.2 V6.3 H-6.2 Z M-5.2 -1.5 H5.2 V.2 H-5.2 Z" />
+      <path className="landmark-main" d="M-6 4.8 V-.8 L-4.7 -2.8 L-3.4 -.8 V4.8 M3.4 4.8 V-.8 L4.7 -2.8 L6 -.8 V4.8 M-2.7 4.8 V.3 H2.7 V4.8" />
+      <path className="landmark-detail" d="M-7 -3 H-2.4 M2.4 -3 H7 M-1.2 .3 V-1.3 H1.2 V.3" />
+    </>}
+    {kind === "ferry" && <>
+      <path className="landmark-main" d="M-6.7 2.4 Q0 5.1 6.7 2.4 L4.3 5.4 H-4.3 Z M-3.4 1.4 V-4.5 H3.7 V1.9" />
+      <path className="landmark-accent" d="M-3 -4.1 Q.2 -6.8 3.8 -4.1 L3.8 -2.7 H-3 Z" />
+      <path className="landmark-detail" d="M-7 6.3 Q-3.5 4.8 0 6.3 Q3.5 7.7 7 6.3" />
+    </>}
+    {kind === "post" && <>
+      <path className="landmark-main" d="M-5.7 5.3 V-.7 H4.2 V5.3 M-6.8 -.7 L-.8 -5.1 L5.4 -.7 Z M-2.2 5.3 V1.3 H.4 V5.3" />
+      <path className="landmark-accent" d="M4.3 -6.4 V4.7 M4.5 -5.9 L7 -4.8 L4.5 -3.3 Z" />
+      <path className="landmark-detail" d="M-4.2 .8 H-2.8 M1.8 .8 H3.1" />
+    </>}
+    {kind === "fort" && <>
+      <path className="landmark-main" d="M-6.4 5.4 V-2.1 L-4.9 -3.2 L-3.5 -2.1 L-2 -3.2 L-.5 -2.1 L1 -3.2 L2.5 -2.1 L4 -3.2 L5.6 -2.1 V5.4 Z M-1.8 5.4 V1 H1.4 V5.4" />
+      <path className="landmark-accent" d="M-4.7 -5.9 V-1.8 M-4.5 -5.5 L-1.7 -4.5 L-4.5 -3.2 Z" />
+      <path className="landmark-detail" d="M-4.5 .2 H-3 M3 .2 H4.5" />
+    </>}
+    {kind === "market" && <>
+      <path className="landmark-accent" d="M-6.8 -2.5 H6.8 L5.2 .1 Q3.6 1.4 2 .1 Q.4 1.4 -1.2 .1 Q-2.8 1.4 -4.4 .1 Q-6 1.3 -6.8 -.1 Z" />
+      <path className="landmark-main" d="M-5.5 .3 V5.4 H5.5 V.3 M-2.8 5.4 V2.2 H.2 V5.4 M2.2 2.1 H4.1 V3.5 H2.2 Z" />
+      <path className="landmark-detail" d="M-5.8 -2.6 L-4.1 -5 H4.3 L6 -2.6" />
+    </>}
+    {kind === "temple" && <>
+      <path className="landmark-main" d="M-5.3 5.3 V.1 H5.3 V5.3 M-6.8 .1 Q0 -2.1 6.8 .1 L5 -2.2 H-5 Z M-1.4 5.3 V1.8 H1.4 V5.3" />
+      <path className="landmark-accent" d="M0 -6.1 V-2.8 M-1.5 -5 H1.5 M-1 -3.8 H1" />
+      <path className="landmark-detail" d="M-6.8 5.5 H6.8" />
+    </>}
+  </>;
+}
+
 function WeatherGlyph({ kind }: { kind: ReturnType<typeof regionalWeatherSnapshot>[number]["kind"] }) {
   if (kind === "clear" || kind === "heat") return <>
     <circle className="weather-symbol-main" r="3.7" />
@@ -288,6 +326,7 @@ export default function WorldMap({
     viewport: MapViewport;
   } | null>(null);
   const activeRoutes = new Set(activeRouteIds);
+  const activeRouteSignature = activeRouteIds.join("|");
   const selectedCity = CITIES.find((city) => city.id === selectedCityId);
   const currentCity = CITIES.find((city) => city.id === game.currentCityId);
   const selectedWeather = selectedCity ? weatherForCity(game.seed, game.day, selectedCity) : null;
@@ -302,7 +341,13 @@ export default function WorldMap({
   const zoomPercent = Math.round((VIEW_BOXES.realm.width / viewport.width) * 100);
   const officeCityIds = useMemo(() => Object.keys(game.offices), [game.offices]);
   const pinnedCityIds = useMemo(() => new Set([selectedCityId, game.currentCityId, ...activeCityIds, ...candidateCityIds, ...officeCityIds]), [selectedCityId, game.currentCityId, activeCityIds, candidateCityIds, officeCityIds]);
-  const detailedCities = useMemo(() => detailedCityIds(CITIES, mapDetail, pinnedCityIds), [mapDetail, pinnedCityIds]);
+  const baselineDetailedCities = useMemo(() => detailedCityIds(CITIES, mapDetail, pinnedCityIds), [mapDetail, pinnedCityIds]);
+  const detailedCities = useMemo(() => {
+    if (routeCandidates.length === 0) return baselineDetailedCities;
+    return new Set(CITIES.filter((city) =>
+      baselineDetailedCities.has(city.id) && (pinnedCityIds.has(city.id) || city.tier === "capital"),
+    ).map((city) => city.id));
+  }, [baselineDetailedCities, pinnedCityIds, routeCandidateSignature]);
   const detailedCityList = useMemo(() => CITIES.filter((city) => detailedCities.has(city.id)), [detailedCities]);
   const borderCityIds = useMemo(() => politicalBorderCityIds(game.cities, ROUTES), [game.cities]);
   const borderRouteCount = useMemo(() => ROUTES.filter((route) => routeCrossesPoliticalBorder(game.cities, route)).length, [game.cities]);
@@ -319,24 +364,55 @@ export default function WorldMap({
     return priority(a.id) - priority(b.id) || a.y - b.y || a.id.localeCompare(b.id);
   }), [activeCityIds, borderCityIds, selectedCityId, game.currentCityId]);
   const compactCityCount = CITIES.length - detailedCities.size;
-  const actorLayout = useMemo(() => {
-    const points = game.worldActors.flatMap((actor) => {
-      const route = ROUTES.find((candidate) => candidate.id === actor.routeId);
-      if (!route) return [];
-      const point = pointOnRoute(route, actor.progress, actor.fromCityId);
-      return [{ id: actor.id, kind: actor.kind, x: point.x, y: point.y }];
-    });
-    const cityObstacles: MapIconObstacle[] = CITIES.map((city) => {
+  const cityIconObstacles = useMemo<MapIconObstacle[]>(() => CITIES.map((city) => {
       const glyphScale = CITY_GLYPH_SCALE[mapDetail][city.tier];
       const radius = detailedCities.has(city.id)
         ? (city.tier === "capital" ? 15 : city.tier === "major" ? 12 : 6.5) * glyphScale + 2.2
         : mapDetail === "wide" ? 5.2 : mapDetail === "mid" ? 4 : 3.2;
       return { id: city.id, x: city.x, y: city.y, radius };
+    }), [mapDetail, detailedCities]);
+  const pinnedLandmarkRouteIds = useMemo(() => new Set([
+    ...activeRouteIds,
+    ...(previewCandidate?.routeIds ?? []),
+  ]), [activeRouteSignature, previewCandidate?.id]);
+  const visibleLandmarks = useMemo(() => ROUTE_LANDMARKS.filter((landmark) => {
+    if (pinnedLandmarkRouteIds.has(landmark.routeId)) return true;
+    if (mapDetail !== "close" || routeCandidates.length > 0) return landmark.prominence === "major";
+    return true;
+  }), [mapDetail, pinnedLandmarkRouteIds, routeCandidateSignature]);
+  const landmarkLayout = useMemo(() => layoutRouteLandmarks(visibleLandmarks.flatMap((landmark) => {
+    const route = ROUTES.find((candidate) => candidate.id === landmark.routeId);
+    if (!route) return [];
+    const point = pointOnRoute(route, landmark.progress, route.from);
+    return [{
+      id: landmark.id,
+      kind: landmark.kind,
+      prominence: landmark.prominence,
+      pinned: pinnedLandmarkRouteIds.has(landmark.routeId),
+      x: point.x,
+      y: point.y,
+    }];
+  }), cityIconObstacles, mapDetail), [visibleLandmarks, cityIconObstacles, mapDetail, pinnedLandmarkRouteIds]);
+  const landmarksById = useMemo(() => new Map(ROUTE_LANDMARKS.map((landmark) => [landmark.id, landmark])), []);
+  const landmarkObstacles = useMemo<MapIconObstacle[]>(() => landmarkLayout.map((layout) => ({
+    id: `landmark:${layout.id}`,
+    x: layout.x,
+    y: layout.y,
+    radius: layout.radius,
+  })), [landmarkLayout]);
+  const actorLayout = useMemo(() => {
+    const points = game.worldActors.flatMap((actor) => {
+      if (routeCandidates.length > 0 && !pinnedLandmarkRouteIds.has(actor.routeId)) return [];
+      const route = ROUTES.find((candidate) => candidate.id === actor.routeId);
+      if (!route) return [];
+      const point = pointOnRoute(route, actor.progress, actor.fromCityId);
+      return [{ id: actor.id, kind: actor.kind, x: point.x, y: point.y }];
     });
-    return layoutMapActors(points, cityObstacles, mapDetail);
-  }, [game.worldActors, mapDetail, detailedCities]);
+    return layoutMapActors(points, [...cityIconObstacles, ...landmarkObstacles], mapDetail);
+  }, [game.worldActors, mapDetail, cityIconObstacles, landmarkObstacles, pinnedLandmarkRouteIds, routeCandidateSignature]);
   const actorsById = useMemo(() => new Map(game.worldActors.map((actor) => [actor.id, actor])), [game.worldActors]);
   const stackedActorGroups = actorLayout.filter((group) => group.actorIds.length > 1).length;
+  const stackedLandmarkGroups = landmarkLayout.filter((group) => group.landmarkIds.length > 1).length;
 
   function markerHitRadius(city: (typeof CITIES)[number]) {
     const minimum = mapDetail === "wide" ? 14 : mapDetail === "mid" ? 10 : 6.5;
@@ -511,7 +587,8 @@ export default function WorldMap({
       )}
       <div className="map-detail-readout" aria-live="polite">
         <b>{mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
-          <span>{detailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {borderRouteCount}处边路</span>
+          <span>{detailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {landmarkLayout.length}枚路标 · {borderRouteCount}处边路</span>
+          {stackedLandmarkGroups > 0 && <small>{stackedLandmarkGroups}组相邻关渡已合标 · 放大继续展开</small>}
           {stackedActorGroups > 0 && <small>{stackedActorGroups}组同路行旅已合标 · 放大自动展开</small>}
         {selectedWeather && <small className={`weather-${selectedWeather.kind}`}>{selectedCity?.name} · {selectedWeather.seal}·{selectedWeather.label}</small>}
         {mapDetail !== "close" && <small>继续放大展开城池</small>}
@@ -693,6 +770,38 @@ export default function WorldMap({
                 {active && <circle className="route-marker" cx={mx} cy={my} r="3.5" />}
                 {knownCondition !== "clear" && <g className={`route-condition-seal condition-${knownCondition} ${intelAge > 2 ? "is-stale" : ""}`} transform={`translate(${mx} ${my})`}><circle r="5" /><text y="2" textAnchor="middle">{conditionEffect.seal}</text></g>}
                 <title>{route.name} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
+              </g>
+            );
+          })}
+        </g>
+
+        <g className={`map-route-landmarks landmark-detail-${mapDetail}`} aria-label="沿途关隘、渡口、驿亭与寨市">
+          {landmarkLayout.map((layout) => {
+            const landmark = landmarksById.get(layout.primaryLandmarkId);
+            if (!landmark) return null;
+            const route = ROUTES.find((candidate) => candidate.id === landmark.routeId);
+            if (!route) return null;
+            const members = layout.landmarkIds.map((id) => landmarksById.get(id)).filter((item) => Boolean(item));
+            const memberNames = members.map((item) => item!.name).join("、");
+            const kind = routeLandmarkKind(landmark.kind);
+            const scale = layout.pinned
+              ? mapDetail === "wide" ? 1.08 : mapDetail === "mid" ? .78 : .56
+              : mapDetail === "wide" ? .94 : mapDetail === "mid" ? .68 : .5;
+            const displaced = Math.hypot(layout.x - layout.anchorX, layout.y - layout.anchorY) > 1;
+            const showName = layout.pinned || (mapDetail === "close" && routeCandidates.length === 0 && landmark.prominence === "major");
+            return (
+              <g
+                key={layout.id}
+                className={`route-landmark landmark-${landmark.kind} ${layout.pinned ? "is-pinned" : ""} ${layout.landmarkIds.length > 1 ? "is-stack" : ""}`}
+                transform={`translate(${layout.x} ${layout.y})`}
+                role="img"
+                aria-label={`${memberNames}，${kind.label}${layout.landmarkIds.length > 1 ? `，共${layout.landmarkIds.length}处相邻路标` : ""}`}
+              >
+                {displaced && <path className="landmark-anchor-line" d={`M0 0 L${layout.anchorX - layout.x} ${layout.anchorY - layout.y}`} />}
+                <g transform={`scale(${scale})`}><RouteLandmarkGlyph kind={landmark.kind} /></g>
+                {layout.landmarkIds.length > 1 && <g className="landmark-stack-count" transform={`translate(${6.6 * scale} ${-6.3 * scale})`}><circle r="3.8" /><text y="1.5" textAnchor="middle">{layout.landmarkIds.length}</text></g>}
+                {showName && <text className="landmark-name" y={-8.8 * scale} textAnchor="middle">{landmark.name}</text>}
+                <title>{memberNames} · {route.name} · {landmark.description} · 可{landmark.service}{layout.landmarkIds.length > 1 ? ` · 合并显示${layout.landmarkIds.length}处，放大后展开` : ""}</title>
               </g>
             );
           })}
@@ -896,6 +1005,7 @@ export default function WorldMap({
         <span><i className="legend-line official" />官道</span>
         <span><i className="legend-line mountain" />山路</span>
         <span><i className="legend-line river" />水路</span>
+        <span><i className="legend-landmark">关</i>关渡驿寨</span>
         <span><i className="legend-condition">异</i>路况</span>
         <span><i className="legend-traveler merchant" />商旅</span>
         <span><i className="legend-traveler patrol" />巡骑</span>

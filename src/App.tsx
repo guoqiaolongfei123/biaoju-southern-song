@@ -53,6 +53,7 @@ import { CREW_CAPACITY, crewRank } from "./core/crewContent";
 import { cityStanding, cityStandingProgress, cityStatusEffect, contractCountForCity } from "./core/cityContent";
 import { cityActionPriority, type CityWorkspaceTab } from "./core/cityDashboard";
 import { ROUTE_CONDITION_EFFECTS } from "./core/routeContent";
+import { landmarksForPlan, primaryLandmarkForRoute, routeLandmarkKind } from "./core/routeLandmarkContent";
 import { factionStanding, factionStandingProgress } from "./core/factionContent";
 import { careerEnding, careerObjectiveProgress } from "./core/careerContent";
 import { conductPrinciples } from "./core/conductContent";
@@ -850,6 +851,7 @@ function RouteCard({
 }) {
   const names = plan.routeIds.map((id) => routeById(id).name).join(" → ");
   const cities = plan.cityIds.map((id) => cityById(id).name).join(" · ");
+  const landmarks = landmarksForPlan(plan.routeIds);
   const insight = routePlanInsight(game, plan);
   const travel = routePlanTravelForecast(game, plan);
   const readiness = departureReadinessForPlan(game, plan);
@@ -891,6 +893,18 @@ function RouteCard({
           {strongestWeather && <span className={`weather-tag weather-${strongestWeather.weather.kind}`}>{travel.weatherSummary} · {furthestWeather.confidence.label}</span>}
           {travel.days !== plan.days && <span className="convoy-modifier">车马行策 {travel.days - plan.days > 0 ? "+" : ""}{travel.days - plan.days}日</span>}
         </div>
+        {landmarks.length > 0 && (
+          <section className="route-landmarks" aria-label={`沿途要点：${landmarks.map((landmark) => landmark.name).join("、")}`}>
+            <header><span>沿途要点</span><small>舆图已标</small></header>
+            <div>
+              {landmarks.slice(0, 3).map((landmark) => {
+                const kind = routeLandmarkKind(landmark.kind);
+                return <span key={landmark.id} title={landmark.description}><i>{kind.seal}</i><b>{landmark.name}</b><small>{kind.label} · {landmark.service}</small></span>;
+              })}
+              {landmarks.length > 3 && <em>另 {landmarks.length - 3} 处</em>}
+            </div>
+          </section>
+        )}
         <section className={`route-readiness readiness-${readiness.tone}`} aria-label={`${routeCandidateSeal(index)}路成行判断：${readiness.label}`}>
           <i>{readiness.seal}</i>
           <div className="route-readiness-copy"><small>行前成行判断</small><b>{readiness.label}</b><p>{readiness.summary}</p></div>
@@ -1079,7 +1093,7 @@ function App() {
   const selectedFactionStanding = factionStanding(selectedFactionRelation);
   const selectedFactionProgress = factionStandingProgress(selectedFactionRelation);
   const selectedPermitActive = hasActivePermit(game, selectedState.owner);
-  const activeRoutes = game.journey?.plan.routeIds ?? [];
+  const activeRoutes = game.phase === "planning" ? [] : game.journey?.plan.routeIds ?? [];
   const currentCity = cityById(game.currentCityId);
   const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member));
   const journeyStance = travelStanceById(game.journey?.stance);
@@ -1094,6 +1108,7 @@ function App() {
   const currentBorderCoverAssessment = currentBorderFaction ? travelCoverAssessment(game, journeyCover.id, currentBorderFaction) : null;
   const stopoverRouteId = game.currentEvent?.kind === "waystation" && game.journey ? game.journey.plan.routeIds[game.journey.segmentIndex] : null;
   const stopoverForecast = stopoverRouteId ? segmentTravelForecast(game, stopoverRouteId) : null;
+  const stopoverLandmark = stopoverRouteId ? primaryLandmarkForRoute(stopoverRouteId) : null;
   const currentOffice = game.offices[game.currentCityId];
   const officeOffer = officeActionOffer(game);
   const aidOffer = cityAidOffer(game);
@@ -1602,8 +1617,11 @@ function App() {
                 {(() => {
                   const routeId = game.journey!.plan.routeIds[game.journey!.segmentIndex];
                   const forecast = segmentTravelForecast(game, routeId);
+                  const landmark = primaryLandmarkForRoute(routeId);
+                  const landmarkKind = landmark ? routeLandmarkKind(landmark.kind) : null;
                   return <>
                 <p><span>当前路段</span><b>{routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).name}</b></p>
+                {landmark && landmarkKind && <p className="journey-landmark"><span>沿途要点</span><b><i>{landmarkKind.seal}</i>{landmark.name}<small>{landmarkKind.label} · {landmark.service}</small></b></p>}
                 <p><span>预计耗时</span><b>{forecast.days} 日</b></p>
                 <p><span>地形</span><b>{TERRAIN_LABEL[routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).terrain]}</b></p>
                 <p><span>当前天候</span><b className={`journey-weather weather-${forecast.weather.kind}`}>{forecast.weather.seal} · {forecast.weather.label}<small>{forecast.weatherEffect.note}</small></b></p>
@@ -1658,6 +1676,10 @@ function App() {
               )}
               {game.currentEvent.kind === "waystation" && stopoverRouteId && stopoverForecast && (
                 <section className="stopover-strategy" aria-label="在落脚点改换行程方略">
+                  {stopoverLandmark && (() => {
+                    const kind = routeLandmarkKind(stopoverLandmark.kind);
+                    return <div className="stopover-landmark"><i>{kind.seal}</i><span><small>前路要点 · {kind.label}</small><b>{stopoverLandmark.name}</b><em>{stopoverLandmark.service}</em></span><p>{stopoverLandmark.description}</p></div>;
+                  })()}
                   <div className="stopover-next"><span>下一程 · {routeById(stopoverRouteId).name}<small className={`weather-${stopoverForecast.weather.kind}`}>{stopoverForecast.weather.seal} · {stopoverForecast.weather.label} · {stopoverForecast.weatherEffect.note}</small></span><b>{stopoverForecast.days} 日 · 粮 {stopoverForecast.supplyCost} · 马力 {stopoverForecast.staminaCost}</b></div>
                   <div className="stopover-stances">
                     {TRAVEL_STANCE_LIST.map((stance) => (
