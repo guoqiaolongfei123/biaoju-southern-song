@@ -4,6 +4,7 @@ import {
   createInitialGame,
   departureReadinessForPlan,
   generateRoutePlans,
+  preferredDeparturePlanId,
   purchaseService,
   routePlanTravelForecast,
   serviceCost,
@@ -97,5 +98,36 @@ describe("departure readiness", () => {
     expect(purchaseService(full, "supplies")).toBe(full);
     expect(purchaseService(full, "stable")).toBe(full);
     expect(purchaseService(full, "heal")).toBe(full);
+  });
+
+  it("recommends the most feasible route independently of list order", () => {
+    const game = openingPlanningGame();
+    const plans = generateRoutePlans("linan", "xiangyang", game);
+    const preferredId = preferredDeparturePlanId(game, plans);
+    const toneRank = { ready: 0, caution: 1, danger: 2 } as const;
+
+    expect(preferredId).not.toBeNull();
+    expect(preferredDeparturePlanId(game, [...plans].reverse())).toBe(preferredId);
+    const preferred = plans.find((plan) => plan.id === preferredId)!;
+    expect(toneRank[departureReadinessForPlan(game, preferred).tone]).toBe(
+      Math.min(...plans.map((plan) => toneRank[departureReadinessForPlan(game, plan).tone])),
+    );
+  });
+
+  it("favors the shortest route when every option is fully provisioned", () => {
+    const base = openingPlanningGame();
+    const game = {
+      ...base,
+      supplies: 99,
+      convoy: { ...base.convoy, horseStamina: 999 },
+      journey: { ...base.journey!, contract: { ...base.journey!.contract, deadline: 99 } },
+    };
+    const plans = generateRoutePlans("linan", "xiangyang", game);
+    const preferredId = preferredDeparturePlanId(game, plans);
+    const preferred = plans.find((plan) => plan.id === preferredId)!;
+
+    expect(routePlanTravelForecast(game, preferred).days).toBe(
+      Math.min(...plans.map((plan) => routePlanTravelForecast(game, plan).days)),
+    );
   });
 });

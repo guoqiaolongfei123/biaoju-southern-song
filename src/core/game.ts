@@ -853,6 +853,31 @@ export function departureReadinessForPlan(game: GameState, plan: RoutePlan): Dep
   };
 }
 
+/**
+ * Pick the route that is most likely to form up successfully with the
+ * player's current deadline, stores, horses and fighting core. The choice is
+ * advisory rather than restrictive: every route remains available, but the
+ * map and the planning command slip should open on the option that demands
+ * the fewest hidden compromises.
+ */
+export function preferredDeparturePlanId(game: GameState, plans: RoutePlan[]): string | null {
+  if (!plans.length) return null;
+  const toneWeight: Record<DepartureReadinessTone, number> = { ready: 0, caution: 100_000, danger: 200_000 };
+  return plans.map((plan) => {
+    const readiness = departureReadinessForPlan(game, plan);
+    const travel = routePlanTravelForecast(game, plan);
+    const score = toneWeight[readiness.tone]
+      + (readiness.combatReady ? 0 : 8_000)
+      + Math.max(0, -readiness.deadlineMargin) * 1_200
+      + Math.max(0, -readiness.supplyBalance) * 180
+      + Math.max(0, -readiness.staminaBalance) * 20
+      + readiness.warnings.length * 50
+      + travel.days * 4
+      - Math.min(10, Math.max(0, readiness.deadlineMargin)) * 12;
+    return { id: plan.id, score };
+  }).sort((left, right) => left.score - right.score || left.id.localeCompare(right.id))[0].id;
+}
+
 function riskLabel(danger: number): Contract["risk"] {
   if (danger >= 68) return "凶险";
   if (danger >= 43) return "棘手";

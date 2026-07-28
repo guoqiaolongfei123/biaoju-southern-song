@@ -39,6 +39,7 @@ import {
   purchaseConvoyUpgrade,
   purchaseHorseTeam,
   purchaseWagon,
+  preferredDeparturePlanId,
   recruitCrew,
   resolveEvent,
   routeInvestigationCost,
@@ -1104,6 +1105,7 @@ function RouteCard({
   const routeCoverAssessment = travelCoverAssessment(game, routeCover.id, borderFactions[0] ?? null);
   return (
     <article
+      id={`route-plan-${plan.id}`}
       className={`route-card candidate-tone-${index % 3} intel-${insight.freshness} ${highlighted ? "is-previewed" : ""}`}
       tabIndex={0}
       aria-label={`${routeCandidateSeal(index)}路，${plan.label}，${travel.days}日，路险${travel.dangerLabel}`}
@@ -1285,9 +1287,12 @@ function App() {
     });
   }, [game, routePlans]);
 
+  const preferredRoutePreviewId = game?.phase === "planning"
+    ? preferredDeparturePlanId(game, routePlans)
+    : null;
   const effectiveRoutePreviewId = mapRouteCandidates.some((candidate) => candidate.id === previewRoutePlanId)
     ? previewRoutePlanId
-    : mapRouteCandidates[0]?.id ?? null;
+    : preferredRoutePreviewId ?? mapRouteCandidates[0]?.id ?? null;
 
   useEffect(() => {
     setPreviewRoutePlanId(null);
@@ -1357,6 +1362,10 @@ function App() {
   const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member && !member.captivity && !dispatchedCrewIds.has(member.id)));
   const journeyStance = travelStanceById(game.journey?.stance);
   const previewedRoutePlan = routePlans.find((plan) => plan.id === effectiveRoutePreviewId) ?? routePlans[0] ?? game.journey?.plan;
+  const previewedRouteIndex = previewedRoutePlan ? routePlans.findIndex((plan) => plan.id === previewedRoutePlan.id) : -1;
+  const previewedRouteForecast = previewedRoutePlan && game.phase === "planning" ? routePlanTravelForecast(game, previewedRoutePlan) : null;
+  const previewedRouteReadiness = previewedRoutePlan && game.phase === "planning" ? departureReadinessForPlan(game, previewedRoutePlan) : null;
+  const previewedRouteIsPreferred = previewedRoutePlan?.id === preferredRoutePreviewId;
   const planningBorderFactions = previewedRoutePlan ? routeBorderFactions(game, previewedRoutePlan) : [];
   const planningCoverTarget = planningBorderFactions[0] ?? null;
   const journeyCover = travelCoverById(game.journey?.coverId);
@@ -1855,6 +1864,48 @@ function App() {
                 <b>{game.journey.contract.cargo}</b><span>{game.journey.contract.brief}</span>
                 {game.journey.contract.secretKnown && <em><strong>已查明</strong>{game.journey.contract.secret}</em>}
               </div>
+              {previewedRoutePlan && previewedRouteForecast && previewedRouteReadiness && previewedRouteIndex >= 0 && (
+                <section className={`planning-route-command readiness-${previewedRouteReadiness.tone}`} aria-label="当前预览路线与出发判断">
+                  <header>
+                    <i>{routeCandidateSeal(previewedRouteIndex)}</i>
+                    <span>
+                      <small>{previewedRouteIsPreferred ? "账房首荐 · 当前舆图预览" : "当前舆图预览 · 即时重算"}</small>
+                      <b>{previewedRoutePlan.label}</b>
+                    </span>
+                    <strong>{previewedRouteReadiness.label}</strong>
+                  </header>
+                  <dl>
+                    <div className={previewedRouteReadiness.deadlineMargin < 0 ? "is-deficit" : previewedRouteReadiness.deadlineMargin <= 2 ? "is-tight" : "is-sound"}><dt>期限</dt><dd>{previewedRouteReadiness.deadlineMargin < 0 ? `误 ${Math.abs(previewedRouteReadiness.deadlineMargin)}日` : `余 ${previewedRouteReadiness.deadlineMargin}日`}</dd></div>
+                    <div className={previewedRouteReadiness.supplyBalance < 0 ? "is-deficit" : "is-sound"}><dt>行粮</dt><dd>{previewedRouteReadiness.supplyBalance < 0 ? `缺 ${Math.abs(previewedRouteReadiness.supplyBalance)}` : `余 ${previewedRouteReadiness.supplyBalance}`}</dd></div>
+                    <div className={previewedRouteReadiness.staminaBalance < 0 ? "is-deficit" : "is-sound"}><dt>马力</dt><dd>{previewedRouteReadiness.staminaBalance < 0 ? `缺 ${Math.abs(previewedRouteReadiness.staminaBalance)}` : `余 ${previewedRouteReadiness.staminaBalance}`}</dd></div>
+                    <div><dt>路险</dt><dd>{previewedRouteForecast.dangerLabel}</dd></div>
+                  </dl>
+                  <p>{previewedRouteReadiness.warnings[0] ?? previewedRouteReadiness.strengths[0] ?? previewedRouteReadiness.summary}</p>
+                  <div className="planning-route-actions">
+                    <button
+                      className="planning-route-inspect"
+                      onClick={() => {
+                        const routeCard = document.getElementById(`route-plan-${previewedRoutePlan.id}`);
+                        routeCard?.scrollIntoView({ behavior: "smooth", block: "start" });
+                        routeCard?.focus({ preventScroll: true });
+                      }}
+                    >展开{routeCandidateSeal(previewedRouteIndex)}路路簿</button>
+                    <button
+                      className="primary-button"
+                      disabled={game.activeCrewIds.length !== 3 || game.silver < journeyCover.cost}
+                      onClick={() => setGame(chooseRoute(game, previewedRoutePlan))}
+                    >
+                      {game.activeCrewIds.length !== 3
+                        ? "先点足三名随行人"
+                        : game.silver < journeyCover.cost
+                          ? `行装尚缺 ${journeyCover.cost - game.silver} 两`
+                          : previewedRouteReadiness.tone === "danger"
+                            ? `知险仍从${routeCandidateSeal(previewedRouteIndex)}路出发`
+                            : `按${routeCandidateSeal(previewedRouteIndex)}路出发`}
+                    </button>
+                  </div>
+                </section>
+              )}
               {activeSpecialHandling && <section className="planning-special-rule" aria-label={`${activeSpecialHandling.name}行前规程`}>
                 <i>{activeSpecialHandling.seal}</i><div><small>特镖行规</small><b>{activeSpecialHandling.name}</b><p>{activeSpecialHandling.rule}</p><em>{activeSpecialHandling.counterplay}</em></div>
               </section>}
