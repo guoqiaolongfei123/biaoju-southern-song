@@ -11,6 +11,7 @@ import { rivalBureauByActor, rivalRank, rivalRelation } from "../core/rivalConte
 import { regionalWeatherSnapshot, weatherEffectForRoute, weatherForCity, weatherForRoute, weatherRoadPressure } from "../core/weatherContent";
 import { gameCalendarDate, seasonalTravelAdvisory } from "../core/calendarContent";
 import { roadInfluenceSnapshot } from "../core/roadPowerContent";
+import { routeBusinessInsights } from "../core/routeBusiness";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
@@ -49,7 +50,7 @@ interface WorldMapProps {
 }
 
 type MapFocus = "realm" | "song" | "frontier";
-type MapLayer = "overview" | "roads" | "weather";
+type MapLayer = "overview" | "roads" | "business" | "weather";
 
 const VIEW_BOXES: Record<MapFocus, MapViewport> = {
   realm: { x: 90, y: 95, width: 1020, height: 573.75 },
@@ -412,6 +413,12 @@ export default function WorldMap({
   const selectedRouteWeatherPressure = selectedRoute && selectedRouteWeather ? weatherRoadPressure(selectedRouteWeather, selectedRoute.terrain) : null;
   const selectedRoutePresentation = selectedRoute ? roadPresentationById.get(selectedRoute.id) ?? null : null;
   const selectedRoadInfluence = selectedRoute ? roadInfluenceSnapshot(selectedRoute.id, game.routeStates[selectedRoute.id], game.day) : null;
+  const routeBusinessById = useMemo(() => routeBusinessInsights(ROUTES, game.routeIntel, game.businessLedger), [game.routeIntel, game.businessLedger]);
+  const selectedRouteBusiness = selectedRoute ? routeBusinessById[selectedRoute.id] : null;
+  const routeBusinessList = Object.values(routeBusinessById);
+  const traveledBusinessRouteCount = routeBusinessList.filter((insight) => insight.trips > 0 || insight.ledgerTrips > 0).length;
+  const profitableBusinessRouteCount = routeBusinessList.filter((insight) => insight.tone === "profit").length;
+  const businessLedgerNet = game.businessLedger.reduce((sum, record) => sum + record.finance.netChange, 0);
   const selectedRouteOwners = selectedRoute ? routeOwners(game.cities, selectedRoute) : null;
   const selectedRouteActors = selectedRoute ? game.worldActors.filter((actor) => actor.routeId === selectedRoute.id) : [];
   const regionalWeather = useMemo(() => regionalWeatherSnapshot(game.seed, game.day), [game.seed, game.day]);
@@ -419,7 +426,7 @@ export default function WorldMap({
   const seasonalAdvisory = useMemo(() => seasonalTravelAdvisory(game.day), [game.day]);
   const visibleRegionalWeather = useMemo(() => {
     if (mapLayer === "weather") return regionalWeather;
-    if (mapLayer === "roads") return [];
+    if (mapLayer === "roads" || mapLayer === "business") return [];
     return regionalWeather
       .filter((weather) => weather.kind !== "clear")
       .sort((a, b) => b.severity - a.severity || a.region.id.localeCompare(b.region.id))
@@ -838,7 +845,7 @@ export default function WorldMap({
 
   function inspectRoute(routeId: string) {
     setSelectedRouteId((current) => current === routeId ? null : routeId);
-    setMapLayer("roads");
+    setMapLayer((current) => current === "business" ? current : "roads");
   }
 
   function focusRouteEndpoint(cityId: string) {
@@ -861,6 +868,7 @@ export default function WorldMap({
         <div className="map-layer-tools" aria-label="地图信息图层">
           <button className={mapLayer === "overview" ? "active" : ""} aria-pressed={mapLayer === "overview"} onClick={() => setMapLayer("overview")}>通览</button>
           <button className={mapLayer === "roads" ? "active" : ""} aria-label={`驿路图层，${knownRoadIssueCount}处已知异状`} aria-pressed={mapLayer === "roads"} onClick={() => setMapLayer("roads")}><span>驿路</span>{knownRoadIssueCount > 0 && <em aria-hidden="true">{knownRoadIssueCount}</em>}</button>
+          <button className={mapLayer === "business" ? "active" : ""} aria-label={`商路图层，本号走过${traveledBusinessRouteCount}段路线`} aria-pressed={mapLayer === "business"} onClick={() => setMapLayer("business")}><span>商路</span>{traveledBusinessRouteCount > 0 && <em aria-hidden="true">{traveledBusinessRouteCount}</em>}</button>
           <button className={mapLayer === "weather" ? "active" : ""} aria-label={`天候图层，${adverseWeatherCount}处恶候`} aria-pressed={mapLayer === "weather"} onClick={() => setMapLayer("weather")}><span>天候</span>{adverseWeatherCount > 0 && <em aria-hidden="true">{adverseWeatherCount}</em>}</button>
         </div>
         <div className="map-zoom-tools">
@@ -877,6 +885,12 @@ export default function WorldMap({
             <span><i className="layer-road river" />水路</span>
             <span><i className="layer-road-grade arterial">干</i>主干</span>
             <span><i className="layer-road-grade local">支</i>支路</span>
+          </>}
+          {mapLayer === "business" && <>
+            <span><i className="layer-business profit">盈</i>近账盈利</span>
+            <span><i className="layer-business even">平</i>收支相抵</span>
+            <span><i className="layer-business loss">亏</i>近账亏损</span>
+            <span><i className="layer-business known">熟</i>走过未结</span>
           </>}
           {mapLayer === "weather" && <>
             <span className={`layer-key-note season-${seasonalAdvisory.season}`} title={seasonalAdvisory.summary}><i>{seasonalAdvisory.seal}</i>{calendarDate.seasonPeriodLabel} · {seasonalAdvisory.title}</span>
@@ -895,7 +909,7 @@ export default function WorldMap({
           <small>点击定位</small>
         </button>
       )}
-      {selectedRoute && selectedRouteCondition && selectedRouteWeather && selectedRoadInfluence && selectedRouteOwners && (
+      {selectedRoute && selectedRouteCondition && selectedRouteWeather && selectedRoadInfluence && selectedRouteOwners && selectedRouteBusiness && (
         <section className={`map-road-ledger road-tone-${selectedRoadInfluence.tone}`} aria-label={`${selectedRoute.name}驿路路簿`}>
           <header>
             <i>{terrainSeal[selectedRoute.terrain]}</i>
@@ -915,6 +929,11 @@ export default function WorldMap({
             <span title={`${selectedRouteWeather.label}：${selectedRouteWeatherEffect?.note ?? selectedRouteWeather.description}`}><small>今日天候 · {selectedRouteWeather.seal}</small><b>{selectedRouteWeatherEffect?.dayModifier ? `误程 +${selectedRouteWeatherEffect.dayModifier}日` : "不误程"} · 险+{selectedRouteWeatherEffect?.dangerModifier ?? 0}</b></span>
             <span><small>熟路趟数</small><b>{selectedRouteIntel?.trips ?? 0} 趟</b></span>
           </div>
+          <div className={`road-ledger-business business-tone-${selectedRouteBusiness.tone}`}>
+            <i>{selectedRouteBusiness.seal}</i>
+            <span><small>本号商路 · 最近十二趟账页分摊</small><b>{selectedRouteBusiness.masteryLabel}{selectedRouteBusiness.ledgerTrips ? ` · ${selectedRouteBusiness.ledgerTrips} 趟入账` : ""}</b><p>{selectedRouteBusiness.summary}{selectedRouteBusiness.lastTitle ? ` 最近一笔「${selectedRouteBusiness.lastTitle}」于第 ${selectedRouteBusiness.lastClosedDay} 日收卷。` : ""}</p></span>
+            <strong>{selectedRouteBusiness.ledgerTrips ? `${selectedRouteBusiness.allocatedNet >= 0 ? "+" : ""}${selectedRouteBusiness.allocatedNet}` : "—"}<small>分摊净银</small></strong>
+          </div>
           <div className="road-ledger-power">
             <i>{selectedRoadInfluence.seal}</i>
             <span><small>{selectedRoadInfluence.power.name} · 匪势 {selectedRoadInfluence.pressure}/100</small><b>{selectedRoadInfluence.label}{selectedRoadInfluence.effectiveUntilDay ? ` · 至第 ${selectedRoadInfluence.effectiveUntilDay} 日` : ""}</b><p>{selectedRoadInfluence.note}</p></span>
@@ -926,11 +945,12 @@ export default function WorldMap({
         </section>
       )}
       <div className="map-detail-readout" aria-live="polite">
-        <b>{readoutRoute ? readoutRoute.name : mapLayer === "roads" ? "驿路图层" : mapLayer === "weather" ? "天候图层" : mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
+        <b>{readoutRoute ? readoutRoute.name : mapLayer === "roads" ? "驿路图层" : mapLayer === "business" ? "商路图层" : mapLayer === "weather" ? "天候图层" : mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
           <span>{readoutRoute && readoutRouteWeather && readoutRouteCondition
             ? `${roadPresentationById.get(readoutRoute.id)?.label ?? TERRAIN_LABEL[readoutRoute.terrain]} · ${TERRAIN_LABEL[readoutRoute.terrain]} · ${readoutRoute.days}日 · ${readoutRouteCondition.seal}·${readoutRouteCondition.label} · ${readoutRouteWeather.seal}·${readoutRouteWeather.label}`
             : `${visibleDetailedCities.size}座城楼${compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · ${landmarkLayout.length}枚路标 · ${borderRouteCount}处边路${captivityMarkers.length ? ` · ${captivityMarkers.length}处失陷` : ""}`}</span>
           {mapLayer === "roads" && <small>粗细区分干道、通衢与支路 · 常态只盖干道章，点选道路再显专属路章</small>}
+          {mapLayer === "business" && <><small>本号走过 {traveledBusinessRouteCount} 段 · 近账盈利 {profitableBusinessRouteCount} 段 · 总账净银 {businessLedgerNet >= 0 ? "+" : ""}{businessLedgerNet} 两</small><small>线色取自最近十二趟真实账页；点击道路查看熟路与分摊收支</small></>}
           {mapLayer === "weather" && <><small>{calendarDate.fullLabel} · {seasonalAdvisory.title}：{seasonalAdvisory.summary}</small><small>区域锋面与受影响道路同色显影 · 牌面标出强度、余日与行路影响</small></>}
           {cityStackClusters.length > 0 && <small>{cityStackClusters.length}组密集城驿已合标 · 点击数字印放大展开</small>}
           {stackedLandmarkGroups > 0 && <small>{stackedLandmarkGroups}组相邻关渡已合标 · 放大继续展开</small>}
@@ -1122,6 +1142,7 @@ export default function WorldMap({
              const routeWeather = weatherForRoute(game.seed, game.day, route);
              const borderRoute = routeCrossesPoliticalBorder(game.cities, route);
              const presentation = roadPresentationById.get(route.id)!;
+             const business = routeBusinessById[route.id];
              const routeSealScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .7 : .48;
              const deputySealScale = mapDetail === "wide" ? 1.15 : mapDetail === "mid" ? .95 : .72;
              const stateBadge = routeBadgeById.get(`route-state:${route.id}`);
@@ -1130,7 +1151,7 @@ export default function WorldMap({
              return (
                <g
                  key={route.id}
-                 className={`route route-${route.terrain} road-grade-${presentation.grade} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} road-tone-${roadInfluenceSnapshot(route.id, game.routeStates[route.id], game.day).tone} ${intelClass} ${active ? "is-active" : ""} ${deputyActive ? "is-deputy-dispatch" : ""} ${hoveredRouteId === route.id ? "is-hovered" : ""} ${selectedRouteId === route.id ? "is-inspected" : ""}`}
+                 className={`route route-${route.terrain} road-grade-${presentation.grade} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} road-tone-${roadInfluenceSnapshot(route.id, game.routeStates[route.id], game.day).tone} business-tone-${business.tone} business-mastery-${Math.min(3, business.trips)} ${business.trips > 0 || business.ledgerTrips > 0 ? "is-business-traveled" : ""} ${intelClass} ${active ? "is-active" : ""} ${deputyActive ? "is-deputy-dispatch" : ""} ${hoveredRouteId === route.id ? "is-hovered" : ""} ${selectedRouteId === route.id ? "is-inspected" : ""}`}
                 aria-hidden="true"
               >
                 <path className="route-hit" d={path} />
@@ -1151,7 +1172,7 @@ export default function WorldMap({
                      <g transform={`scale(${routeSealScale})`}><circle r="4.2" /><text y="1.7" textAnchor="middle">{terrainSeal[route.terrain]}</text></g>
                    </g>
                  )}
-                 <title>{route.name} · {presentation.label} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {routeWeather.seal}·{routeWeather.label}{deputyActive ? " · 副队短镖在途" : ""} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
+                 <title>{route.name} · {presentation.label} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {routeWeather.seal}·{routeWeather.label}{deputyActive ? " · 副队短镖在途" : ""} · {business.masteryLabel}{business.ledgerTrips ? ` · 近账分摊${business.allocatedNet >= 0 ? "+" : ""}${business.allocatedNet}两` : ""} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
               </g>
             );
           })}
@@ -1375,7 +1396,7 @@ export default function WorldMap({
             return (
               <g
                 key={city.id}
-                className={`city-node ${detailedMarker ? "marker-detailed" : "marker-dot"} tier-${city.tier} status-${state.status} ${frontline.visible ? `is-frontline frontline-${frontline.risk}` : ""} ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${active ? "is-on-route" : ""} ${candidateRole ? `is-candidate-waypoint waypoint-${candidateRole} candidate-tone-${Math.max(0, previewCandidateIndex) % 3}` : ""}`}
+                className={`city-node ${detailedMarker ? "marker-detailed" : "marker-dot"} tier-${city.tier} status-${state.status} ${frontline.visible ? `is-frontline frontline-${frontline.risk}` : ""} ${office ? "has-office" : ""} ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${active ? "is-on-route" : ""} ${candidateRole ? `is-candidate-waypoint waypoint-${candidateRole} candidate-tone-${Math.max(0, previewCandidateIndex) % 3}` : ""}`}
                 data-city-id={city.id}
                 transform={`translate(${markerX} ${markerY})`}
                 onClick={(event) => { event.stopPropagation(); onSelectCity(city.id); }}
