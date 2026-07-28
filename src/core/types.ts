@@ -305,6 +305,8 @@ export interface JourneyState {
   plan: RoutePlan;
   segmentIndex: number;
   startedDay: number;
+  /** 接下镖单时本号的现银，用于在收队卷中核算整趟真实现金流。 */
+  openingSilver?: number;
   elapsedDays: number;
   traveledRouteIds: string[];
   crewIds: string[];
@@ -509,6 +511,20 @@ export interface Settlement {
   equipmentReward?: EquipmentId;
   reputationChange: number;
   notes: string[];
+  finance?: SettlementFinance;
+}
+
+export interface SettlementFinance {
+  openingSilver: number;
+  /** 接镖后、正式交割前的全部实际银两变化；负数含行装、买报、补给与途中处置。 */
+  enRouteCashChange: number;
+  grossReward: number;
+  crewWages: number;
+  contractReward: number;
+  tradeRevenue: number;
+  compensation: number;
+  closingSilver: number;
+  netChange: number;
 }
 
 export interface CareerState {

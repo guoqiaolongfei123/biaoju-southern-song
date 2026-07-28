@@ -153,6 +153,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
       contract: journeyContract!,
       crewIds: [...new Set(Array.isArray(legacyJourney.crewIds) ? legacyJourney.crewIds as string[] : activeCrewIds)].filter((id) => availableCrewIds.has(id)),
       battleVictories: typeof legacyJourney.battleVictories === "number" ? Math.max(0, Math.floor(legacyJourney.battleVictories)) : 0,
+      openingSilver: Math.max(0, Math.round(finiteNumber(legacyJourney.openingSilver, legacy.silver))),
       stance: legacyStance,
       coverId: legacyCoverId,
       coverBlown: legacyJourney.coverBlown === true,

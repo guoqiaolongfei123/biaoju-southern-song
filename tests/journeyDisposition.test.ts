@@ -68,6 +68,14 @@ describe("驿亭收旗议约", () => {
     const newRival = settled.rivalBureaus.find((bureau) => bureau.id === option.rivalId)!;
     expect(settled.phase).toBe("settlement");
     expect(settled.settlement).toMatchObject({ outcome: "transfer", grade: "转", reward: 0, compensation: option.compensation });
+    expect(settled.settlement?.finance).toMatchObject({
+      openingSilver: stopover.journey!.openingSilver,
+      contractReward: 0,
+      tradeRevenue: option.tradeRevenue,
+      compensation: option.compensation,
+      closingSilver: settled.silver,
+      netChange: settled.silver - stopover.journey!.openingSilver!,
+    });
     expect(settled.completedContracts).toBe(stopover.completedContracts);
     expect(settled.silver).toBe(stopover.silver + option.tradeRevenue - option.compensation);
     expect(settled.day).toBe(stopover.day + option.delayDays);

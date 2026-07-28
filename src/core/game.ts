@@ -68,6 +68,7 @@ import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusConte
 import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
 import { contactFavorTier, contactId, contactPatronProfile, createInitialContacts, settleContractContact } from "./contactContent";
 import { appendJourneyChronicle, chronicleSealForEvent, chronicleToneForChoice } from "./journeyChronicle";
+import { calculateSettlementFinance } from "./settlementFinance";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import { contractIncidentEvent } from "./contractIncidentContent";
 import {
@@ -1377,6 +1378,7 @@ export function acceptContract(game: GameState, contractId: string): GameState {
       plan: plans[0],
       segmentIndex: 0,
       startedDay: game.day,
+      openingSilver: game.silver,
       elapsedDays: 0,
       traveledRouteIds: [],
       crewIds: [...game.activeCrewIds],
@@ -2448,6 +2450,14 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     option.issuerRelationChange ? `${FACTIONS[issuerFaction].name}往来 ${option.issuerRelationChange}` : null,
     option.rivalRelationChange ? `与${option.rivalName}的同行关系 +${option.rivalRelationChange}` : null,
   ].filter((note): note is string => Boolean(note));
+  const finance = calculateSettlementFinance({
+    openingSilver: journey.openingSilver ?? next.silver,
+    currentSilver: next.silver,
+    grossReward: 0,
+    crewWages: 0,
+    tradeRevenue: option.tradeRevenue,
+    compensation: option.compensation,
+  });
   const settlement: Settlement = {
     grade: option.id === "transfer" ? "转" : option.id === "return" ? "退" : "失镖",
     outcome: option.id,
@@ -2463,6 +2473,7 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     tradeProfit: journey.tradeLot ? option.tradeProfit : undefined,
     reputationChange: option.reputationChange,
     notes,
+    finance,
   };
   const dispositionJourney = appendJourneyChronicle(next.journey ?? journey, {
     id: `disposition-${next.day}-${option.id}`,
@@ -2483,7 +2494,7 @@ export function resolveJourneyDisposition(game: GameState, dispositionId: Journe
     phase: "settlement",
     currentCityId: option.destinationCityId,
     selectedCityId: option.destinationCityId,
-    silver: Math.max(0, next.silver + option.tradeRevenue - option.compensation),
+    silver: finance.closingSilver,
     supplies: Math.max(0, next.supplies - option.supplyCost),
     reputation: Math.max(0, next.reputation + option.reputationChange),
     jianghuReputation: clampJianghuReputation(next.jianghuReputation + option.jianghuReputationChange),
@@ -3279,6 +3290,14 @@ function settleJourney(game: GameState): GameState {
   for (const [factionId, amount] of Object.entries(relationChanges) as Array<[FactionId, number]>) {
     relations[factionId] = clampFactionRelation((relations[factionId] ?? 0) + amount);
   }
+  const finance = calculateSettlementFinance({
+    openingSilver: journey.openingSilver ?? game.silver,
+    currentSilver: game.silver,
+    grossReward,
+    crewWages,
+    tradeRevenue,
+    compensation,
+  });
   const settlement: Settlement = {
     grade,
     title,
@@ -3290,6 +3309,7 @@ function settleJourney(game: GameState): GameState {
     equipmentReward,
     reputationChange,
     notes: notes.length ? notes : [contract.kind === "escort" ? "按期抵达，护送之人安然无恙" : contract.kind === "letter" ? "按期抵达，信封、暗记与内页均完好" : contract.kind === "special" ? `按特殊规程交割，${specialHandlingForContract(contract)?.name ?? "特镖"}无损` : "按期抵达，货物与封条均完好"],
+    finance,
   };
   const arrivedJourney = appendJourneyChronicle(journey, {
     id: `arrival-${contract.id}-${game.day}`,
@@ -3298,7 +3318,7 @@ function settleJourney(game: GameState): GameState {
     tone: grade === "甲" ? "good" : grade === "乙" ? "ink" : grade === "丙" ? "risk" : "danger",
     seal: grade === "失镖" ? "失" : grade,
     title: `${cityById(contract.to).name}交割 · ${grade}等`,
-    detail: `${settlement.title} · 实收 ${reward} 两${lateDays ? ` · 误限 ${lateDays} 日` : " · 如期"} · ${conditionLabel} ${integrity}%。`,
+    detail: `${settlement.title} · 实收 ${reward} 两 · 本趟${finance.netChange >= 0 ? "净增" : "净减"} ${Math.abs(finance.netChange)} 两${lateDays ? ` · 误限 ${lateDays} 日` : " · 如期"} · ${conditionLabel} ${integrity}%。`,
     cityId: contract.to,
   });
   const settled: GameState = {
@@ -3306,7 +3326,7 @@ function settleJourney(game: GameState): GameState {
     phase: "settlement",
     currentCityId: contract.to,
     selectedCityId: contract.to,
-    silver: Math.max(0, game.silver + reward + tradeRevenue - compensation),
+    silver: finance.closingSilver,
     reputation: Math.max(0, game.reputation + reputationChange),
     cityReputation,
     relations,

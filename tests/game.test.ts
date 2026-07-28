@@ -570,6 +570,13 @@ describe("镖局核心循环", () => {
     expect(intact.settlement?.tradeProfit).toBe((intact.settlement?.tradeRevenue ?? 0) - purchasePrice);
     expect(intact.settlement?.notes.some((note) => note.includes("版刻书画"))).toBe(true);
     expect(intact.silver).toBe(arrived.silver + (intact.settlement?.reward ?? 0) + (intact.settlement?.tradeRevenue ?? 0) - (intact.settlement?.compensation ?? 0));
+    expect(intact.settlement?.finance).toMatchObject({
+      openingSilver: arrived.journey!.openingSilver,
+      contractReward: intact.settlement?.reward,
+      tradeRevenue: intact.settlement?.tradeRevenue,
+      closingSilver: intact.silver,
+      netChange: intact.silver - arrived.journey!.openingSilver!,
+    });
 
     const damaged = resolveEvent({ ...arrived, convoy: { ...arrived.convoy, cargoIntegrity: 50, cartHp: 50 } }, "handoff-original");
     expect(damaged.settlement?.tradeRevenue).toBeLessThan(intact.settlement?.tradeRevenue ?? 0);

@@ -99,6 +99,7 @@ import LeaderProgressionPanel from "./components/LeaderProgressionPanel";
 import CoreCombatFocusPicker from "./components/CoreCombatFocusPicker";
 import AudioToggle from "./components/AudioToggle";
 import JourneyChronicle from "./components/JourneyChronicle";
+import SettlementFinanceLedger from "./components/SettlementFinanceLedger";
 import { useGameAudio } from "./audio/useGameAudio";
 
 type LaunchState = "loading" | "title" | "setup" | "game";
@@ -555,6 +556,7 @@ function developmentSettlementPreview(game: GameState): GameState {
       reputationChange: 6,
       equipmentReward,
       notes: ["镖封、暗记与内页均完好", "胜阵所得「神臂样弩」一件，已由军铺封藏送入器械架", "随行三人阅历各有增长"],
+      finance: { openingSilver: 120, enRouteCashChange: -21, grossReward: 113, crewWages: 27, contractReward: 86, tradeRevenue: 0, compensation: 0, closingSilver: 185, netChange: 65 },
     },
   };
 }
@@ -2268,6 +2270,7 @@ function App() {
               <span><small>胜阵所得 · {settlementEquipment.origin ?? "行院酬器"}</small><b>{settlementEquipment.name}</b><p>{settlementEquipment.description}</p></span>
               <strong><em>{["新手", "熟手", "老手", "名手"][settlementEquipment.requiredRank]}可用</em><b>已入器械架</b></strong>
             </div>}
+            <SettlementFinanceLedger settlement={game.settlement} />
             <div className="settlement-rewards">
               <span><small>{game.settlement.outcome && game.settlement.outcome !== "delivery" ? "镖酬" : "实收"}</small><b>{game.settlement.reward} 两</b></span>
               {game.settlement.tradeProfit !== undefined && <span><small>副货 · 回银 {game.settlement.tradeRevenue ?? 0}</small><b>{game.settlement.tradeProfit >= 0 ? "+" : ""}{game.settlement.tradeProfit} 两</b></span>}
