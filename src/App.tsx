@@ -91,6 +91,7 @@ import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from
 import { rivalBureauViews, rivalRank } from "./core/rivalContent";
 import { updateRouteInfluence } from "./core/roadPowerContent";
 import { contactFavorTier, contactId, contactPatronProfile, MAX_CONTACT_FAVOR } from "./core/contactContent";
+import { routeBusinessInsights, routePlanBusinessInsight } from "./core/routeBusiness";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { JourneyDispositionId } from "./core/game";
 import type { BattleConfig, CareerEndingId, Contract, ContractNegotiationId, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
@@ -1081,6 +1082,7 @@ function RouteCard({
   game,
   plan,
   index,
+  businessByRoute,
   onChoose,
   onInvestigate,
   highlighted = false,
@@ -1090,6 +1092,7 @@ function RouteCard({
   game: GameState;
   plan: RoutePlan;
   index: number;
+  businessByRoute: ReturnType<typeof routeBusinessInsights>;
   onChoose: (plan: RoutePlan) => void;
   onInvestigate: (plan: RoutePlan, method: "buy" | "scout") => void;
   highlighted?: boolean;
@@ -1102,6 +1105,7 @@ function RouteCard({
   const insight = routePlanInsight(game, plan);
   const travel = routePlanTravelForecast(game, plan);
   const readiness = departureReadinessForPlan(game, plan);
+  const business = routePlanBusinessInsight(plan, businessByRoute);
   const routeStance = travelStanceById(game.journey?.stance);
   const routeCover = travelCoverById(game.journey?.coverId);
   const strongestWeather = [...travel.weatherReports].sort((a, b) => b.weather.severity - a.weather.severity)[0];
@@ -1141,6 +1145,16 @@ function RouteCard({
           {strongestWeather && <span className={`weather-tag weather-${strongestWeather.weather.kind}`}>{travel.weatherSummary} · {furthestWeather.confidence.label}</span>}
           {travel.days !== plan.days && <span className="convoy-modifier">车马行策 {travel.days - plan.days > 0 ? "+" : ""}{travel.days - plan.days}日</span>}
         </div>
+        <section className={`route-business-reference business-${business.tone}`} aria-label={`${plan.label}商路旧账：${business.label}，${business.coverageLabel}`}>
+          <i>{business.seal}</i>
+          <span>
+            <small>柜上旧账 · 只作历史参照</small>
+            <b>{business.label}</b>
+            <em>{business.latestTitle && business.latestClosedDay ? `最近「${business.latestTitle}」· 第${business.latestClosedDay}日` : business.summary}</em>
+          </span>
+          <strong>{business.ledgerSegments > 0 ? `${business.apportionedNet >= 0 ? "+" : ""}${business.apportionedNet}` : `${business.familiarSegments}/${business.segmentCount}`}<small>{business.ledgerSegments > 0 ? "两 · 入账段均势" : "段 · 熟路覆盖"}</small></strong>
+          <p>{business.summary}</p>
+        </section>
         {landmarks.length > 0 && (
           <section className="route-landmarks" aria-label={`沿途要点：${landmarks.map((landmark) => landmark.name).join("、")}`}>
             <header><span>沿途要点</span><small>舆图已标</small></header>
@@ -1277,6 +1291,11 @@ function App() {
     return generateRoutePlans(game.journey.contract.from, game.journey.contract.to, game);
   }, [game?.journey?.contract.id, game?.routeIntel, game?.routeStates, game?.day, game?.seed]);
 
+  const routeBusinessById = useMemo(
+    () => game ? routeBusinessInsights(ROUTES, game.routeIntel, game.businessLedger) : {},
+    [game?.routeIntel, game?.businessLedger],
+  );
+
   const contractBoardAssessments = useMemo(
     () => game ? rankContractsForBoard(game, game.contracts) : [],
     [game],
@@ -1378,6 +1397,7 @@ function App() {
   const previewedRouteIndex = previewedRoutePlan ? routePlans.findIndex((plan) => plan.id === previewedRoutePlan.id) : -1;
   const previewedRouteForecast = previewedRoutePlan && game.phase === "planning" ? routePlanTravelForecast(game, previewedRoutePlan) : null;
   const previewedRouteReadiness = previewedRoutePlan && game.phase === "planning" ? departureReadinessForPlan(game, previewedRoutePlan) : null;
+  const previewedRouteBusiness = previewedRoutePlan && game.phase === "planning" ? routePlanBusinessInsight(previewedRoutePlan, routeBusinessById) : null;
   const previewedRouteIsPreferred = previewedRoutePlan?.id === preferredRoutePreviewId;
   const planningBorderFactions = previewedRoutePlan ? routeBorderFactions(game, previewedRoutePlan) : [];
   const planningCoverTarget = planningBorderFactions[0] ?? null;
@@ -1886,7 +1906,7 @@ function App() {
                 <b>{game.journey.contract.cargo}</b><span>{game.journey.contract.brief}</span>
                 {game.journey.contract.secretKnown && <em><strong>已查明</strong>{game.journey.contract.secret}</em>}
               </div>
-              {previewedRoutePlan && previewedRouteForecast && previewedRouteReadiness && previewedRouteIndex >= 0 && (
+              {previewedRoutePlan && previewedRouteForecast && previewedRouteReadiness && previewedRouteBusiness && previewedRouteIndex >= 0 && (
                 <section className={`planning-route-command readiness-${previewedRouteReadiness.tone}`} aria-label="当前预览路线与出发判断">
                   <header>
                     <i>{routeCandidateSeal(previewedRouteIndex)}</i>
@@ -1903,6 +1923,11 @@ function App() {
                     <div><dt>路险</dt><dd>{previewedRouteForecast.dangerLabel}</dd></div>
                   </dl>
                   <p>{previewedRouteReadiness.warnings[0] ?? previewedRouteReadiness.strengths[0] ?? previewedRouteReadiness.summary}</p>
+                  <div className={`planning-route-business business-${previewedRouteBusiness.tone}`}>
+                    <i>{previewedRouteBusiness.seal}</i>
+                    <span><small>商路旧账 · {previewedRouteBusiness.coverageLabel}</small><b>{previewedRouteBusiness.label}</b></span>
+                    <em>{previewedRouteBusiness.ledgerSegments > 0 ? `已入账路段均势 ${previewedRouteBusiness.apportionedNet >= 0 ? "+" : ""}${previewedRouteBusiness.apportionedNet} 两` : previewedRouteBusiness.familiarSegments > 0 ? `本号走过 ${previewedRouteBusiness.familiarSegments}/${previewedRouteBusiness.segmentCount} 段` : "没有历史账页，不作盈亏推断"}</em>
+                  </div>
                   <div className="planning-route-actions">
                     <button
                       className="planning-route-inspect"
@@ -2102,7 +2127,7 @@ function App() {
                 </div>
                 <footer>马力按整趟累计，超过一百须在沿途驿亭歇马；添粮与饮秣后，下方三路判词会即时重算。</footer>
               </section>
-              <div className="route-list">{routePlans.map((plan, index) => <RouteCard key={plan.id} game={game} plan={plan} index={index} highlighted={plan.id === effectiveRoutePreviewId} onPreview={() => setPreviewRoutePlanId(plan.id)} disabled={game.activeCrewIds.length !== 3} onInvestigate={(picked, method) => setGame(investigateRoute(game, picked, method))} onChoose={(picked) => setGame(chooseRoute(game, picked))} />)}</div>
+              <div className="route-list">{routePlans.map((plan, index) => <RouteCard key={plan.id} game={game} plan={plan} index={index} businessByRoute={routeBusinessById} highlighted={plan.id === effectiveRoutePreviewId} onPreview={() => setPreviewRoutePlanId(plan.id)} disabled={game.activeCrewIds.length !== 3} onInvestigate={(picked, method) => setGame(investigateRoute(game, picked, method))} onChoose={(picked) => setGame(chooseRoute(game, picked))} />)}</div>
             </div>
           )}
 

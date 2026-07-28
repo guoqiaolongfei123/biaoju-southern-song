@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { routeBusinessInsights } from "../src/core/routeBusiness";
+import { routeBusinessInsights, routePlanBusinessInsight } from "../src/core/routeBusiness";
 import type { BusinessRecord, RouteDefinition, RouteIntelState } from "../src/core/types";
 
 const route = (id: string): RouteDefinition => ({ id, from: "linan", to: "huzhou", name: id, terrain: "official", days: 2, danger: 20, note: "" });
@@ -51,5 +51,58 @@ describe("商路经营图层", () => {
       record("older", ["r1"], 8, 6),
     ]);
     expect(insights.r1).toMatchObject({ ledgerTrips: 2, allocatedNet: 20, lastClosedDay: 10, lastTitle: "第newer号镖" });
+  });
+
+  it("把候选行程的逐段均账合成明确的全程旧账参照", () => {
+    const insights = routeBusinessInsights([route("r1"), route("r2")], { r1: intel(3), r2: intel(2) }, [
+      record("a", ["r1", "r2"], 60, 5),
+      record("b", ["r1"], 20, 8),
+    ]);
+    const result = routePlanBusinessInsight({ routeIds: ["r1", "r2", "r1"] }, insights);
+
+    expect(result).toMatchObject({
+      segmentCount: 2,
+      familiarSegments: 2,
+      ledgerSegments: 2,
+      profitableSegments: 2,
+      lossSegments: 0,
+      apportionedNet: 55,
+      tone: "profit",
+      seal: "盈",
+      label: "全程旧账偏盈",
+      coverageLabel: "全程有账 2/2",
+      latestTitle: "第b号镖",
+      latestClosedDay: 8,
+    });
+    expect(result.summary).toContain("按各自历史均账合计 +55 两");
+  });
+
+  it("部分路段有账时保留缺口，并公开盈亏混杂而不冒充整趟预测", () => {
+    const insights = routeBusinessInsights([route("r1"), route("r2"), route("r3")], { r1: intel(2), r2: intel(1), r3: intel(1) }, [
+      record("gain", ["r1"], 30, 4),
+      record("loss", ["r2"], -12, 7),
+    ]);
+    const result = routePlanBusinessInsight({ routeIds: ["r1", "r2", "r3"] }, insights);
+
+    expect(result).toMatchObject({
+      familiarSegments: 3,
+      ledgerSegments: 2,
+      profitableSegments: 1,
+      lossSegments: 1,
+      apportionedNet: 18,
+      tone: "mixed",
+      seal: "参",
+      label: "旧账有盈有亏",
+      coverageLabel: "部分有账 2/3",
+    });
+    expect(result.summary).toContain("覆盖 2/3 段");
+  });
+
+  it("区分全程新路与走过但尚未收卷的熟路", () => {
+    const routes = [route("new"), route("known")];
+    const insights = routeBusinessInsights(routes, { new: intel(0), known: intel(2) }, []);
+
+    expect(routePlanBusinessInsight({ routeIds: ["new"] }, insights)).toMatchObject({ tone: "new", seal: "新", coverageLabel: "全程新路" });
+    expect(routePlanBusinessInsight({ routeIds: ["known"] }, insights)).toMatchObject({ tone: "known", seal: "熟", coverageLabel: "熟路 1/1" });
   });
 });
