@@ -4026,11 +4026,12 @@ export function continueAfterSettlement(game: GameState): GameState {
 }
 
 export function purchaseService(game: GameState, service: ServiceType): GameState {
-  if (game.phase !== "map") return game;
+  const planningService = game.phase === "planning" && Boolean(game.journey) && service !== "intel";
+  if (game.phase !== "map" && !planningService) return game;
   const cost = serviceCost(game, service);
-  if (service === "supplies" && game.silver >= cost) return { ...game, silver: game.silver - cost, supplies: Math.min(24, game.supplies + supplyPurchaseAmount(game)) };
-  if (service === "repair" && game.silver >= cost) return { ...game, silver: game.silver - cost, convoy: { ...game.convoy, cartHp: Math.min(100, game.convoy.cartHp + 30) } };
-  if (service === "stable" && game.silver >= cost) return {
+  if (service === "supplies" && game.silver >= cost && game.supplies < 24) return { ...game, silver: game.silver - cost, supplies: Math.min(24, game.supplies + supplyPurchaseAmount(game)) };
+  if (service === "repair" && game.silver >= cost && game.convoy.cartHp < 100) return { ...game, silver: game.silver - cost, convoy: { ...game.convoy, cartHp: Math.min(100, game.convoy.cartHp + 30) } };
+  if (service === "stable" && game.silver >= cost && (game.convoy.horseHp < 100 || game.convoy.horseStamina < 100)) return {
     ...game,
     silver: game.silver - cost,
     convoy: { ...game.convoy, horseHp: Math.min(100, game.convoy.horseHp + 26), horseStamina: Math.min(100, game.convoy.horseStamina + 48) },
@@ -4038,6 +4039,8 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
   };
   if (service === "heal" && game.silver >= cost) {
     const dispatchedCrew = deputyDispatchCrewIds(game);
+    const needsTreatment = game.convoy.leaderHp < 100 || Boolean(game.leader.injury) || game.crew.some((member) => !member.captivity && !dispatchedCrew.has(member.id) && (member.hp < member.maxHp || Boolean(member.injury)));
+    if (!needsTreatment) return game;
     const hasDoctor = game.crew.some((member) => member.role === "医师" && member.hp > 0 && !member.captivity && !dispatchedCrew.has(member.id));
     const treatmentDays = hasDoctor ? 4 : 3;
     const treated: string[] = [];

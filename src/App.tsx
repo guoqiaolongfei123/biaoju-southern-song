@@ -1396,6 +1396,11 @@ function App() {
   const activeMartialArt = martialArtById(game.martialArtId);
   const injuredCrewCount = game.crew.filter((member) => member.injury && !member.captivity).length;
   const captiveCrewCount = game.crew.filter((member) => member.captivity).length;
+  const planningForecasts = game.phase === "planning" ? routePlans.map((plan) => routePlanTravelForecast(game, plan)) : [];
+  const planningMinimumSupply = planningForecasts.length ? Math.min(...planningForecasts.map((forecast) => forecast.supplyCost)) : 0;
+  const planningMinimumStamina = planningForecasts.length ? Math.min(...planningForecasts.map((forecast) => forecast.staminaCost)) : 0;
+  const planningSupplyShortfall = Math.max(0, planningMinimumSupply - game.supplies);
+  const planningNeedsTreatment = game.convoy.leaderHp < 100 || Boolean(game.leader.injury) || game.crew.some((member) => !member.captivity && !dispatchedCrewIds.has(member.id) && (member.hp < member.maxHp || Boolean(member.injury)));
   const isCurrentCity = selectedCity.id === game.currentCityId;
   const cityPriority = cityActionPriority(game);
   const preparationIssueCount = [
@@ -1972,6 +1977,46 @@ function App() {
                 <div className={`cover-verdict fit-${journeyCoverAssessment.fit}`}>
                   <i>{journeyCover.seal}</i><span><small>当前身份 · {journeyCoverAssessment.fitLabel}</small><b>{journeyCover.title}</b><em>{journeyCoverAssessment.strengths[0] ?? journeyCoverAssessment.warnings[0] ?? journeyCover.description}</em></span>
                 </div>
+              </section>
+              <section className={`departure-provisions ${planningSupplyShortfall > 0 ? "has-shortfall" : "is-stocked"}`} aria-label="出城前最后整备">
+                <header>
+                  <i>备</i>
+                  <span><small>行前盘缠 · 落印前仍可添置</small><b>出城前最后整备</b></span>
+                  <em>{planningSupplyShortfall > 0 ? `最省路线尚缺 ${planningSupplyShortfall} 份粮` : "最省路线粮草已足"}</em>
+                </header>
+                <dl>
+                  <div className={planningSupplyShortfall > 0 ? "is-deficit" : "is-sound"}><dt>车上行粮</dt><dd>{game.supplies}<small>／24</small></dd></div>
+                  <div className={game.convoy.horseStamina < 70 ? "is-deficit" : "is-sound"}><dt>当前马力</dt><dd>{game.convoy.horseStamina}<small>／100</small></dd></div>
+                  <div><dt>最省全程</dt><dd>{planningMinimumSupply}<small> 粮</small></dd></div>
+                  <div><dt>沿途马力</dt><dd>{planningMinimumStamina}<small> 点</small></dd></div>
+                </dl>
+                <div className="departure-provision-actions">
+                  <button
+                    disabled={game.supplies >= 24 || game.silver < serviceCost(game, "supplies")}
+                    onClick={() => setGame(purchaseService(game, "supplies"))}
+                  >
+                    <i>粮</i><span><b>{game.supplies >= 24 ? "干粮已满" : "干粮装车"}</b><small>{serviceCost(game, "supplies")} 两 · +{Math.min(24 - game.supplies, supplyPurchaseAmount(game))} 补给</small></span><em>{game.supplies}→{Math.min(24, game.supplies + supplyPurchaseAmount(game))}</em>
+                  </button>
+                  <button
+                    disabled={(game.convoy.horseHp >= 100 && game.convoy.horseStamina >= 100) || game.silver < serviceCost(game, "stable")}
+                    onClick={() => setGame(purchaseService(game, "stable"))}
+                  >
+                    <i>马</i><span><b>{game.convoy.horseStamina >= 100 && game.convoy.horseHp >= 100 ? "马匹已整" : "马院饮秣"}</b><small>{serviceCost(game, "stable")} 两 · 马力 +48</small></span><em>{game.convoy.horseStamina}→{Math.min(100, game.convoy.horseStamina + 48)}</em>
+                  </button>
+                  {game.convoy.cartHp < 100 && <button
+                    disabled={game.silver < serviceCost(game, "repair")}
+                    onClick={() => setGame(purchaseService(game, "repair"))}
+                  >
+                    <i>车</i><span><b>紧固车轴</b><small>{serviceCost(game, "repair")} 两 · 车况 +30</small></span><em>{game.convoy.cartHp}→{Math.min(100, game.convoy.cartHp + 30)}</em>
+                  </button>}
+                  {planningNeedsTreatment && <button
+                    disabled={game.silver < serviceCost(game, "heal")}
+                    onClick={() => setGame(purchaseService(game, "heal"))}
+                  >
+                    <i>药</i><span><b>延医整队</b><small>{serviceCost(game, "heal")} 两 · 治伤复气</small></span><em>{injuredCrewCount ? `${injuredCrewCount}伤` : `镖头${game.convoy.leaderHp}`}</em>
+                  </button>}
+                </div>
+                <footer>马力按整趟累计，超过一百须在沿途驿亭歇马；添粮与饮秣后，下方三路判词会即时重算。</footer>
               </section>
               <div className="route-list">{routePlans.map((plan, index) => <RouteCard key={plan.id} game={game} plan={plan} index={index} highlighted={plan.id === effectiveRoutePreviewId} onPreview={() => setPreviewRoutePlanId(plan.id)} disabled={game.activeCrewIds.length !== 3} onInvestigate={(picked, method) => setGame(investigateRoute(game, picked, method))} onChoose={(picked) => setGame(chooseRoute(game, picked))} />)}</div>
             </div>

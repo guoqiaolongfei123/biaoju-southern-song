@@ -4,7 +4,9 @@ import {
   createInitialGame,
   departureReadinessForPlan,
   generateRoutePlans,
+  purchaseService,
   routePlanTravelForecast,
+  serviceCost,
   setTravelStance,
   toggleJourneyCrew,
 } from "../src/core/game";
@@ -67,5 +69,33 @@ describe("departure readiness", () => {
     const hasteResult = departureReadinessForPlan(haste, hastePlan);
     expect(hasteResult.deadlineMargin).toBeGreaterThanOrEqual(steadyResult.deadlineMargin);
     expect(hasteResult.staminaBalance).toBeLessThan(steadyResult.staminaBalance);
+  });
+
+  it("allows last-minute provisions after accepting a contract and immediately improves the route verdict", () => {
+    let game = openingPlanningGame();
+    const beforePlans = generateRoutePlans("linan", "xiangyang", game);
+    const planIndex = beforePlans.map((plan) => routePlanTravelForecast(game, plan).supplyCost)
+      .reduce((best, cost, index, costs) => cost < costs[best] ? index : best, 0);
+    const silverBefore = game.silver;
+    const supplyBefore = game.supplies;
+    const readinessBefore = departureReadinessForPlan(game, beforePlans[planIndex]);
+
+    game = purchaseService(game, "supplies");
+    const afterPlan = generateRoutePlans("linan", "xiangyang", game)[planIndex];
+    const readinessAfter = departureReadinessForPlan(game, afterPlan);
+
+    expect(game.phase).toBe("planning");
+    expect(game.journey?.contract.id).toBe("opening-xiangyang");
+    expect(game.supplies).toBeGreaterThan(supplyBefore);
+    expect(game.silver).toBe(silverBefore - serviceCost(openingPlanningGame(), "supplies"));
+    expect(readinessAfter.supplyBalance).toBeGreaterThan(readinessBefore.supplyBalance);
+    expect(readinessAfter.tone).not.toBe("danger");
+  });
+
+  it("does not charge for planning services that are already at capacity", () => {
+    const full = { ...openingPlanningGame(), silver: 90, supplies: 24 };
+    expect(purchaseService(full, "supplies")).toBe(full);
+    expect(purchaseService(full, "stable")).toBe(full);
+    expect(purchaseService(full, "heal")).toBe(full);
   });
 });
