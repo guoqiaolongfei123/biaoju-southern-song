@@ -10,7 +10,7 @@ export interface CityMarkerCluster {
   radius: number;
 }
 
-const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 50, mid: 26, close: 18 };
+const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 54, mid: 28, close: 16 };
 const CLUSTER_RADIUS: Record<MapDetail, number> = { wide: 9.4, mid: 6.2, close: 3.8 };
 const MAX_CLUSTER_SIZE: Record<MapDetail, number> = { wide: 10, mid: 6, close: 5 };
 

@@ -15,8 +15,8 @@ export interface WeatherMarkerLayout extends WeatherMarkerPoint {
   radius: number;
 }
 
-const MARKER_RADIUS: Record<MapDetail, number> = { wide: 32, mid: 23, close: 16 };
-const SEARCH_RING: Record<MapDetail, number> = { wide: 37, mid: 25, close: 18 };
+const MARKER_RADIUS: Record<MapDetail, number> = { wide: 36, mid: 26, close: 18 };
+const SEARCH_RING: Record<MapDetail, number> = { wide: 42, mid: 29, close: 20 };
 
 function overlapAmount(x: number, y: number, radius: number, obstacle: MapIconObstacle): number {
   return Math.max(0, radius + obstacle.radius - Math.hypot(x - obstacle.x, y - obstacle.y));
@@ -58,4 +58,3 @@ export function layoutWeatherMarkers(
     return { ...point, markerX: best.x, markerY: best.y, radius };
   });
 }
-

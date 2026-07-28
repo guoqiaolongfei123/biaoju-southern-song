@@ -164,7 +164,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-caption { position: absolute; left: 28px; top: 20px; z-index: 6; display: grid; padding: 8px 12px 7px; color: #322417; background: rgba(221,197,148,.56); border: 1px solid rgba(72,48,25,.2); box-shadow: 0 7px 22px rgba(46,29,16,.12); backdrop-filter: blur(4px); text-shadow: 0 1px rgba(238,218,175,.28); }
 .map-caption span { font: 24px var(--font-display); letter-spacing: .18em; }
 .map-caption small { margin-top: 3px; font-size: 8px; opacity: .6; letter-spacing: .1em; }
-.map-tools { position: absolute; z-index: 7; right: 22px; top: 18px; display: grid; gap: 4px; min-width: 210px; padding: 4px; background: rgba(51,37,23,.48); border: 1px solid rgba(54,37,20,.36); box-shadow: 0 7px 22px rgba(39,24,13,.14); backdrop-filter: blur(5px); }
+.map-tools { position: absolute; z-index: 7; right: 22px; top: 18px; display: grid; gap: 4px; min-width: 244px; padding: 4px; background: rgba(51,37,23,.48); border: 1px solid rgba(54,37,20,.36); box-shadow: 0 7px 22px rgba(39,24,13,.14); backdrop-filter: blur(5px); }
 .map-focus-tools, .map-layer-tools, .map-zoom-tools { display: flex; }
 .map-tools button { min-width: 47px; padding: 6px 8px; color: #4f3c27; background: rgba(232,211,169,.72); border: 0; border-right: 1px solid rgba(56,40,23,.18); cursor: pointer; font-size: 10px; letter-spacing: .12em; }
 .map-tools button:last-child { border-right: 0; }.map-tools button:hover, .map-tools button.active { color: #f2e5c5; background: #583b25; }
@@ -174,12 +174,13 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-zoom-tools button { min-width: 35px; font-size: 14px; }
 .map-zoom-tools output { min-width: 52px; display: grid; place-items: center; color: #ead9b2; background: rgba(32,22,14,.48); font: 9px var(--font-body); letter-spacing: .06em; }
 .map-zoom-tools .map-reset { flex: 1; font-size: 9px; }
-.map-layer-key { min-height: 24px; display: flex; align-items: center; justify-content: center; gap: 9px; padding: 4px 6px; color: #e8d8b5; background: rgba(31,22,14,.52); font-size: 8px; letter-spacing: .05em; }
+.map-layer-key { min-height: 24px; display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 4px 9px; padding: 4px 6px; color: #e8d8b5; background: rgba(31,22,14,.52); font-size: 8px; letter-spacing: .05em; }
 .map-layer-key span { min-width: 0; display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
 .map-layer-key i { width: 15px; height: 15px; display: grid; place-items: center; color: var(--weather-accent, #d6bd83); border: 1px solid currentColor; border-radius: 50%; font: 8px var(--font-display); font-style: normal; }
 .map-layer-key .layer-key-note { color: #c8b58e; }.map-layer-key .layer-key-note i { color: #e0c681; border-radius: 1px; }
 .map-layer-key .layer-road { width: 17px; height: 5px; display: block; border-radius: 4px; border: 1px solid rgba(237,218,177,.74); }
 .map-layer-key .layer-road.official { background: #90774e; }.map-layer-key .layer-road.mountain { background: repeating-linear-gradient(90deg,#74543d 0 4px,#ddc792 4px 6px); }.map-layer-key .layer-road.river { background: repeating-linear-gradient(90deg,#52787c 0 7px,#e0e4ca 7px 10px); }
+.map-layer-key .layer-road-grade { width: 15px; height: 15px; display: grid; place-items: center; border-radius: 1px; font: 7px var(--font-display); }.map-layer-key .layer-road-grade.arterial { color: #f0ddb2; border: 2px solid #c8a76b; background: #705335; }.map-layer-key .layer-road-grade.local { color: #cbbd9d; border: 1px dashed #a18a62; background: rgba(92,72,47,.58); }
 .map-gesture-hint { position: absolute; z-index: 6; right: 24px; top: 157px; padding: 4px 7px; color: rgba(52,39,24,.72); background: rgba(230,209,168,.48); border: 1px solid rgba(68,46,26,.14); font-size: 8px; letter-spacing: .12em; backdrop-filter: blur(3px); }
 .map-current-location { position: absolute; z-index: 7; left: 28px; top: 92px; display: grid; grid-template-columns: 28px auto auto; align-items: center; gap: 7px; min-width: 166px; padding: 6px 8px; color: #263e2e; background: rgba(230,211,171,.82); border: 1px solid rgba(40,83,59,.55); box-shadow: 0 7px 22px rgba(39,25,14,.17), inset 3px 0 #285b43; backdrop-filter: blur(5px); cursor: pointer; text-align: left; }
 .map-current-location:hover { color: #f0dfb6; background: rgba(37,73,53,.94); border-color: #d6b96d; }
@@ -215,6 +216,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .weather-system { mix-blend-mode: normal; }
 .weather-region { color: var(--weather-accent); filter: drop-shadow(0 1px 1px rgba(50,34,20,.28)); }
 .weather-front-shadow { fill: currentColor; opacity: .08; stroke: none; }
+.weather-front-core { fill: currentColor; opacity: .1; stroke: none; }
 .weather-front-ring { fill: none; stroke: currentColor; stroke-width: 1.1; stroke-dasharray: 7 3 1 3; opacity: .42; paint-order: stroke; }
 .weather-front-inner { fill: none; stroke: currentColor; stroke-width: .75; stroke-dasharray: 2 4; opacity: .18; }
 .weather-wash { fill: currentColor; opacity: .18; stroke: currentColor; stroke-width: .7; stroke-dasharray: 2 4; }
@@ -224,6 +226,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .weather-texture-rain { stroke-width: 1.7; }.weather-texture-fog { stroke-width: 2.4; opacity: .4; }.weather-texture-gale { stroke-width: 1.8; }.weather-texture-frost { stroke-width: 1; }.weather-texture-heat { stroke-width: 1.55; }.weather-texture-clear { opacity: .22; }
 .weather-texture-accent { fill: rgba(115,55,51,.25); stroke: #693b48; stroke-width: 1; opacity: .92; }
 .weather-cartouche { fill: rgba(239,221,183,.97); stroke: currentColor; stroke-width: 1.45; stroke-dasharray: 1.2 1; filter: drop-shadow(0 1.6px 1.5px rgba(44,29,17,.52)); }
+.weather-cartouche-inner { fill: none; stroke: color-mix(in srgb, currentColor 62%, #e9d8ae); stroke-width: .55; stroke-dasharray: 4 1.6; opacity: .72; }
 .weather-cartouche-band { fill: currentColor; opacity: .17; stroke: currentColor; stroke-width: .45; }
 .weather-anchor-line { fill: none; stroke: currentColor; stroke-width: 1.05; stroke-dasharray: 1 2.2; opacity: .68; vector-effect: non-scaling-stroke; }
 .weather-symbol { fill: none; stroke: color-mix(in srgb, currentColor 84%, #261b12); stroke-width: 1.55; stroke-linecap: round; stroke-linejoin: round; }
@@ -234,6 +237,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .weather-severity-marks circle { fill: rgba(91,73,50,.18); stroke: color-mix(in srgb, currentColor 72%, #3c2a1b); stroke-width: .45; }
 .weather-severity-marks circle.is-filled { fill: currentColor; stroke: rgba(239,219,178,.92); stroke-width: .55; }
 .weather-region-label { fill: currentColor; font: 8px var(--font-display); letter-spacing: .07em; paint-order: stroke; stroke: rgba(236,219,183,.94); stroke-width: 2.3px; }
+.weather-impact-label { fill: color-mix(in srgb, currentColor 72%, #342519); font: 4.4px var(--font-body); font-weight: 600; letter-spacing: .1em; paint-order: stroke; stroke: rgba(236,219,183,.9); stroke-width: 1.5px; }
 .weather-detail-close .weather-region-label { font-size: 7px; stroke-width: 2.5px; }
 .weather-detail-close .weather-wash { opacity: .12; }
 .map-layer-roads .weather-atmosphere { opacity: .18; }
@@ -243,6 +247,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-layer-weather .weather-atmosphere, .map-layer-weather .weather-system { opacity: 1; }
 .map-layer-weather .weather-front-ring { stroke-width: 1.65; opacity: .72; }
 .map-layer-weather .weather-front-shadow { opacity: .18; }
+.map-layer-weather .weather-front-core { opacity: .24; }
 .map-layer-weather .weather-front-inner { stroke-width: 1.1; opacity: .42; }
 .map-layer-weather .weather-wash { opacity: .34; }
 .map-layer-weather .weather-rain .weather-wash, .map-layer-weather .weather-fog .weather-wash { opacity: .44; }
@@ -269,6 +274,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .border-seal-side { opacity: .78; }
 .border-seal-frame { fill: none; stroke: rgba(54,36,22,.92); stroke-width: 1.15; }
 .political-border-seal text { fill: #f1e0b8; stroke: rgba(46,29,17,.8); stroke-width: 1.3px; paint-order: stroke; font: 6.2px var(--font-display); }
+.route-badge-anchor { fill: none; stroke: rgba(82,56,33,.74); stroke-width: .85; stroke-dasharray: 1.2 1.8; opacity: .72; vector-effect: non-scaling-stroke; pointer-events: none; }
 .route-shadow, .route-casing, .route-bed, .route-line, .route-pattern, .route-weather-trace { fill: none; stroke-linecap: round; stroke-linejoin: round; vector-effect: non-scaling-stroke; transition: stroke .18s ease, stroke-width .18s ease, opacity .18s ease; }
 .route-shadow { stroke: rgba(47,32,20,.6); stroke-width: 6.7; opacity: .56; }
 .route-casing { stroke: rgba(244,225,184,.94); stroke-width: 5.1; opacity: .94; }
@@ -290,6 +296,10 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .route-river .route-line { stroke-width: 3.7; opacity: .98; }
 .route-river .route-pattern { stroke: rgba(232,243,222,.94); stroke-width: 1.25; stroke-dasharray: 9 4; }
 .route-river .route-bed { stroke: rgba(221,232,204,.72); stroke-width: 4.4; }
+.route.road-grade-arterial .route-shadow { stroke-width: 8.2; opacity: .72; }.route.road-grade-arterial .route-casing { stroke-width: 6.4; }.route.road-grade-arterial .route-bed { stroke-width: 4.8; }.route.road-grade-arterial .route-line { stroke-width: 3.8; }
+.route.road-grade-local:not(.is-active):not(.is-deputy-dispatch):not(.is-inspected):not(.is-hovered) { opacity: .58; }.route.road-grade-local .route-shadow { stroke-width: 4.8; }.route.road-grade-local .route-casing { stroke-width: 3.7; }.route.road-grade-local .route-bed { stroke-width: 2.7; }.route.road-grade-local .route-line { stroke-width: 1.8; }
+.map-layer-overview .route:not(.route-weather-clear) .route-weather-trace { opacity: .12; stroke-width: 4.2; stroke-dasharray: 2 6; }
+.map-layer-overview .route.weather-severity-3:not(.route-weather-clear) .route-weather-trace { opacity: .19; stroke-width: 5; }.map-layer-overview .route.weather-severity-4:not(.route-weather-clear) .route-weather-trace { opacity: .28; stroke-width: 5.8; }
 .map-layer-roads .painted-map-land-art { opacity: .34; }
 .map-layer-roads .faction-regions { opacity: .48; }
 .map-layer-roads .city-node:not(.is-current):not(.is-selected):not(.is-on-route), .map-layer-roads .city-cluster { opacity: .48; }
@@ -301,6 +311,8 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-layer-roads .route-mountain .route-casing { stroke-width: 7.1; }
 .map-layer-roads .route-river .route-casing { stroke-width: 8; }
 .map-layer-roads .route-mountain .route-line { stroke-width: 4.7; }.map-layer-roads .route-river .route-line { stroke-width: 5.6; }
+.map-layer-roads .route.road-grade-arterial .route-shadow { stroke-width: 10.6; }.map-layer-roads .route.road-grade-arterial .route-casing { stroke-width: 8.4; }.map-layer-roads .route.road-grade-arterial .route-bed { stroke-width: 6.5; }.map-layer-roads .route.road-grade-arterial .route-line { stroke-width: 5.1; }
+.map-layer-roads .route.road-grade-local:not(.is-active):not(.is-deputy-dispatch):not(.is-inspected):not(.is-hovered) { opacity: .68; }.map-layer-roads .route.road-grade-local .route-shadow { stroke-width: 6; }.map-layer-roads .route.road-grade-local .route-casing { stroke-width: 4.6; }.map-layer-roads .route.road-grade-local .route-bed { stroke-width: 3.5; }.map-layer-roads .route.road-grade-local .route-line { stroke-width: 2.6; }
 .map-layer-roads .route-pattern { opacity: .94; }
 .map-layer-roads .route-official .route-pattern { stroke-width: 1.45; stroke-dasharray: 1 9; }
 .map-layer-roads .route-mountain .route-pattern { stroke-width: 1.4; stroke-dasharray: 2 7; }
@@ -310,6 +322,7 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .map-layer-roads .control-corridor { opacity: .06; }
 .map-layer-roads .world-actors { opacity: .34; }
 .map-layer-roads .map-route-landmarks { opacity: .54; }
+.map-layer-roads .route:not(.route-weather-clear) .route-weather-trace { opacity: .09; stroke-width: 4.6; stroke-dasharray: 2 7; }
 .map-layer-weather .route-shadow, .map-layer-weather .route-casing { opacity: .18; }
 .map-layer-weather .route-line { opacity: .18; }
 .map-layer-weather .route-pattern { opacity: .08; }
