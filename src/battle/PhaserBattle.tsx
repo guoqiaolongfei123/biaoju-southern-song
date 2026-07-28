@@ -2318,26 +2318,35 @@ export default function PhaserBattle({ config, onComplete }: PhaserBattleProps) 
       {!started ? (
         <div className="battle-ready">
           <div className="battle-ready-figure"><span>戰</span><img src={`${import.meta.env.BASE_URL}assets/battle/leader/01.png`} alt="持枪迎敌的镖头" /></div>
-          <div>
+          <div className="battle-ready-copy">
             <span className="kicker">{sceneLabel} · 等你发令</span>
             <h3>{readyTitle}</h3>
-            <p>{readyDescription} {(config.cartHealthRatio ?? 1) < .84 ? `镖车当前只有 ${Math.round((config.cartHealthRatio ?? 1) * 100)} 分车况，开战后可下「停阵抢修」令；车把式会自动选位动手，余众则继续迎敌。` : config.enemyLeaderName && config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? `持近阵强弩的队员会等待你的「集中齐射」令，再自动锁定${config.enemyLeaderName}或成排弓手、同步攒弩发射。` : config.escortClient ? `「${config.escortClient.name}」会作为真实单位随车行动；劫人者可能绕过正面直取活镖，危急时可下「护住活镖」令。` : !config.objectiveNote && config.danger >= 54 && objectiveMode !== "pursuit" ? "高危匪众可能派夺旗手直取行旗；失旗会动摇士气，开路追旗与围车护旗将由你的阵令决定。" : ""} 镖头与随行镖师会自行寻敌、出招与护车；身后近敌会触发自动回身，三面受敌时会边迎敌边侧退脱围，副镖头在近侧则自动补住背袭路线。你只需临阵调整护卫重点与推进节奏。敌方危险起手命中车、马或活镖时，会以「应／破」明确结算阵令是否对症。绝技「{martialArt.technique}」默认在合适时机自动施展。</p>
+            <p className="battle-ready-objective">{readyDescription} {(config.cartHealthRatio ?? 1) < .84 ? `镖车当前只有 ${Math.round((config.cartHealthRatio ?? 1) * 100)} 分车况，开战后可下「停阵抢修」令。` : config.enemyLeaderName && config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? `持近阵强弩的队员会等待你的「集中齐射」令。` : config.escortClient ? `「${config.escortClient.name}」会作为真实单位随车行动，危急时可下「护住活镖」令。` : !config.objectiveNote && config.danger >= 54 && objectiveMode !== "pursuit" ? "高危匪众可能派夺旗手直取行旗。" : ""}</p>
+            <div className="battle-control-contract" aria-label="战斗操作分工">
+              <i>令</i><span><small>玩家只管策略</small><b>选预案 · 下阵令</b><em>敌招显形时自动缓速</em></span><strong>人物自动作战</strong>
+            </div>
             {config.escortClient && <div className="battle-client-slip"><img src={BATTLE_ASSETS.client.path} alt="活镖旅客" /><span><small>此行活镖</small><b>{config.escortClient.name}</b><em>人身气血会带入余程与最终交割</em></span></div>}
             {bossBattle && <div className="battle-chief-slip"><i>首</i><span><small>敌方首领 · 两阶段自动行为</small><b>{config.enemyLeaderName}</b><em>先在后阵号令群匪；局势不利时会弃旗逼战、直取总镖头。重招将提前显形，「强行开路」可自动迎锋破势。</em></span><strong>号令 → 逼战</strong></div>}
-            <div className={`battle-martial-slip martial-${martialArt.id}${config.leader?.injuryName ? " is-injured" : ""}`}><i>{martialArt.seal}</i><span><small>{config.leader?.name ?? "总镖头"} · {crewRank(config.leader?.experience ?? 0).label} · {martialRank.label} · 武历 {martialExperience} · {martialArt.school}{config.leader?.injuryName ? <mark>带伤 · {config.leader.injuryName}</mark> : null}</small><b>{martialArt.name}</b><em>{martialProficiencyEffectSummary(martialArt.id, martialExperience)}{config.leader?.equipmentNames?.length ? ` · 随身 ${config.leader.equipmentNames.join("、")}` : ""}</em></span></div>
-            {deputy && <div className={`battle-core-bond-slip focus-${coreCombatFocusId} bond-level-${deputyBond.level}`} aria-label={`双核心武路 ${coreCombatFocus.name}，主副默契 ${deputyBond.label}`}>
-              <i>{coreCombatFocus.seal}</i><span><small>{coreCombatFocus.name} · {coreCombatRank.label} · 武路 {coreCombatExperience} · 默契「{deputyBond.label}」</small><b>{config.leader?.name ?? "总镖头"} × {deputy.name}</b><em>{coreCombatFocusEffectSummary(coreCombatFocusId, coreCombatExperience)} · 约 {coreComboTuning.cooldownSeconds.toFixed(1)} 息再合</em></span><strong>自动依路出招</strong>
-            </div>}
             <div className="battle-doctrine-picker" aria-label="选择战术预案">
               <header><span>战前预案</span><small>自动作战将按此站位与节奏执行</small></header>
               <div>{BATTLE_DOCTRINE_LIST.map((item) => <button key={item.id} aria-pressed={doctrineId === item.id} className={doctrineId === item.id ? "is-selected" : ""} onClick={() => setDoctrineId(item.id)}>
                 <i style={{ color: item.color }}>{item.seal}</i><span><b>{item.title}</b><small>{item.effect}</small><em>{item.risk}</em></span>
               </button>)}</div>
             </div>
-            <div className="battle-ready-crew">{config.guards.map((guard) => <span key={guard.id}><b>{guard.name}</b>{guard.role}{guard.disciplineName && <em>{guard.disciplineName}</em>}{guard.masteryName && <em className="is-mastery">绝活 · {guard.masteryName}</em>}{guard.injuryName && <mark>{guard.injuryName}</mark>}<small>{crewRank(guard.experience ?? 0).label} · 阅历 {guard.experience ?? 0} · {guard.equipmentNames?.length ? guard.equipmentNames.join(" · ") : "未配器械"}</small></span>)}</div>
-            <div className="ready-controls"><span>预案 <b>{selectedDoctrine.title}</b></span><span>临阵 <b>只下阵令</b></span><span>护背 <b>自动回身脱围</b></span><span>连携 <b>同敌自动合击</b></span><span>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "弩令" : (config.cartHealthRatio ?? 1) < .84 ? "抢修" : "救援"} <b>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "齐射取准" : (config.cartHealthRatio ?? 1) < .84 ? config.spareAxle ? "备用轴在车" : "就地紧榫" : "倒地可救"}</b></span><span>绝技 <b>自动择机</b></span></div>
-            <div className="battle-relay-readiness"><i>令</i><span><small>本队阵令传达</small><b>约 {commandRelaySeconds.toFixed(1)} 息送达</b><em>{relayTalentLabel} · 士气越稳响应越快</em></span></div>
-            <button className="primary-button" onClick={() => setStarted(true)}>按「{selectedDoctrine.title}」迎敌</button>
+            <div className="battle-ready-launch">
+              <div className="battle-relay-readiness"><i>令</i><span><small>本队阵令传达</small><b>约 {commandRelaySeconds.toFixed(1)} 息送达</b><em>{relayTalentLabel} · 士气越稳响应越快</em></span></div>
+              <button className="primary-button" onClick={() => setStarted(true)}>按「{selectedDoctrine.title}」迎敌</button>
+            </div>
+            <details className="battle-ready-details">
+              <summary><span><small>本阵人物与自动行动</small><b>武学 · 双核心 · 装备 · 护背</b></span><em>展开详情</em></summary>
+              <p>镖头与随行镖师会自行寻敌、出招与护车；身后近敌会触发自动回身，三面受敌时会边迎敌边侧退脱围，副镖头在近侧则自动补住背袭路线。你只需临阵调整护卫重点与推进节奏。敌方危险起手命中车、马或活镖时，会以「应／破」明确结算阵令是否对症。绝技「{martialArt.technique}」默认在合适时机自动施展。</p>
+              <div className={`battle-martial-slip martial-${martialArt.id}${config.leader?.injuryName ? " is-injured" : ""}`}><i>{martialArt.seal}</i><span><small>{config.leader?.name ?? "总镖头"} · {crewRank(config.leader?.experience ?? 0).label} · {martialRank.label} · 武历 {martialExperience} · {martialArt.school}{config.leader?.injuryName ? <mark>带伤 · {config.leader.injuryName}</mark> : null}</small><b>{martialArt.name}</b><em>{martialProficiencyEffectSummary(martialArt.id, martialExperience)}{config.leader?.equipmentNames?.length ? ` · 随身 ${config.leader.equipmentNames.join("、")}` : ""}</em></span></div>
+              {deputy && <div className={`battle-core-bond-slip focus-${coreCombatFocusId} bond-level-${deputyBond.level}`} aria-label={`双核心武路 ${coreCombatFocus.name}，主副默契 ${deputyBond.label}`}>
+                <i>{coreCombatFocus.seal}</i><span><small>{coreCombatFocus.name} · {coreCombatRank.label} · 武路 {coreCombatExperience} · 默契「{deputyBond.label}」</small><b>{config.leader?.name ?? "总镖头"} × {deputy.name}</b><em>{coreCombatFocusEffectSummary(coreCombatFocusId, coreCombatExperience)} · 约 {coreComboTuning.cooldownSeconds.toFixed(1)} 息再合</em></span><strong>自动依路出招</strong>
+              </div>}
+              <div className="battle-ready-crew">{config.guards.map((guard) => <span key={guard.id}><b>{guard.name}</b>{guard.role}{guard.disciplineName && <em>{guard.disciplineName}</em>}{guard.masteryName && <em className="is-mastery">绝活 · {guard.masteryName}</em>}{guard.injuryName && <mark>{guard.injuryName}</mark>}<small>{crewRank(guard.experience ?? 0).label} · 阅历 {guard.experience ?? 0} · {guard.equipmentNames?.length ? guard.equipmentNames.join(" · ") : "未配器械"}</small></span>)}</div>
+              <div className="ready-controls"><span>预案 <b>{selectedDoctrine.title}</b></span><span>临阵 <b>只下阵令</b></span><span>护背 <b>自动回身脱围</b></span><span>连携 <b>同敌自动合击</b></span><span>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "弩令" : (config.cartHealthRatio ?? 1) < .84 ? "抢修" : "救援"} <b>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "齐射取准" : (config.cartHealthRatio ?? 1) < .84 ? config.spareAxle ? "备用轴在车" : "就地紧榫" : "倒地可救"}</b></span><span>绝技 <b>自动择机</b></span></div>
+            </details>
           </div>
         </div>
       ) : (
