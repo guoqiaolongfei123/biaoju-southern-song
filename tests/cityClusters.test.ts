@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CityDefinition } from "../src/core/types";
-import { cityClusterCalloutPlacement, layoutCityMarkerClusters } from "../src/map/cityClusters";
+import { cityClusterCalloutPlacement, cityClusterHitRadius, layoutCityMarkerClusters } from "../src/map/cityClusters";
 
 const city = (id: string, x: number, y: number, tier: CityDefinition["tier"] = "station"): CityDefinition => ({
   id, name: id, subtitle: id, x, y, lon: x, lat: y, defaultOwner: "song", tier, description: "", specialties: [],
@@ -58,5 +58,11 @@ describe("city marker clustering", () => {
     expect(upperLeft.scale).toBe(1);
     expect(upperLeft.x).toBeGreaterThan(9);
     expect(upperLeft.y).toBeGreaterThan(9);
+  });
+
+  it("adds the most click padding to overview cluster seals", () => {
+    expect(cityClusterHitRadius(10, "wide")).toBe(18);
+    expect(cityClusterHitRadius(10, "mid")).toBe(14.5);
+    expect(cityClusterHitRadius(10, "close")).toBe(12.5);
   });
 });

@@ -20,6 +20,12 @@ export interface CityClusterCalloutPlacement {
 const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 54, mid: 28, close: 16 };
 const CLUSTER_RADIUS: Record<MapDetail, number> = { wide: 9.4, mid: 6.2, close: 3.8 };
 const MAX_CLUSTER_SIZE: Record<MapDetail, number> = { wide: 10, mid: 6, close: 5 };
+const CLUSTER_HIT_PADDING: Record<MapDetail, number> = { wide: 8, mid: 4.5, close: 2.5 };
+
+/** Invisible click radius for an aggregate seal; its painted size stays unchanged. */
+export function cityClusterHitRadius(radius: number, detail: MapDetail): number {
+  return radius + CLUSTER_HIT_PADDING[detail];
+}
 
 function cityPriority(city: CityDefinition): number {
   return city.tier === "capital" ? 3 : city.tier === "major" ? 2 : 1;

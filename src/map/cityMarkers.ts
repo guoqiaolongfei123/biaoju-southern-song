@@ -1,9 +1,17 @@
 import type { CityDefinition } from "../core/types";
-import type { MapDetail } from "./cityLabels";
+import { CITY_GLYPH_SCALE, type MapDetail } from "./cityLabels";
 
 export interface MapMarkerPoint {
   x: number;
   y: number;
+}
+
+/** Keeps the invisible click target generous without enlarging the painted city. */
+export function cityMarkerHitRadius(city: CityDefinition, detail: MapDetail, detailed: boolean): number {
+  const minimum = detail === "wide" ? 18 : detail === "mid" ? 10 : 6.5;
+  if (!detailed) return minimum;
+  const glyphScale = CITY_GLYPH_SCALE[detail][city.tier];
+  return Math.max(minimum, (city.tier === "capital" ? 18 : city.tier === "major" ? 15 : 10) * glyphScale);
 }
 
 function markerPriority(city: CityDefinition, pinned: Set<string>): number {

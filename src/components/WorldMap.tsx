@@ -15,8 +15,8 @@ import { routeBusinessInsights } from "../core/routeBusiness";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
-import { cityClusterCalloutPlacement, layoutCityMarkerClusters } from "../map/cityClusters";
-import { detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
+import { cityClusterCalloutPlacement, cityClusterHitRadius, layoutCityMarkerClusters } from "../map/cityClusters";
+import { cityMarkerHitRadius, detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
 import { layoutMapActors, type MapIconObstacle } from "../map/mapIconLayout";
 import { layoutRouteLandmarks } from "../map/routeLandmarkLayout";
 import { layoutSettlementMarkers } from "../map/settlementMarkerLayout";
@@ -400,6 +400,10 @@ export default function WorldMap({
   const currentCity = CITIES.find((city) => city.id === game.currentCityId);
   const selectedWeather = selectedCity ? weatherForCity(game.seed, game.day, selectedCity) : null;
   const currentWeather = currentCity ? weatherForCity(game.seed, game.day, currentCity) : null;
+  const selectedCityState = selectedCity ? game.cities[selectedCity.id] : null;
+  const selectedCityCondition = selectedCityState ? cityStatusEffect(selectedCityState) : null;
+  const selectedCityFaction = selectedCityState ? FACTIONS[selectedCityState.owner] : null;
+  const hasRemoteCitySelection = Boolean(selectedCity && currentCity && selectedCity.id !== currentCity.id);
   const selectedRoute = selectedRouteId ? ROUTES.find((route) => route.id === selectedRouteId) ?? null : null;
   const hoveredRoute = hoveredRouteId ? ROUTES.find((route) => route.id === hoveredRouteId) ?? null : null;
   const readoutRoute = selectedRoute ?? hoveredRoute;
@@ -703,10 +707,7 @@ export default function WorldMap({
   }, [mapDetail, expandedCityIds.length]);
 
   function markerHitRadius(city: (typeof CITIES)[number]) {
-    const minimum = mapDetail === "wide" ? 14 : mapDetail === "mid" ? 10 : 6.5;
-    if (!detailedCities.has(city.id)) return minimum;
-    const glyphScale = CITY_GLYPH_SCALE[mapDetail][city.tier];
-    return Math.max(minimum, (city.tier === "capital" ? 18 : city.tier === "major" ? 15 : 10) * glyphScale);
+    return cityMarkerHitRadius(city, mapDetail, detailedCities.has(city.id));
   }
 
   function cancelInteractionFrame() {
@@ -961,11 +962,14 @@ export default function WorldMap({
           </footer>
         </section>
       )}
-      <div className="map-detail-readout" aria-live="polite">
-        <b>{readoutRoute ? readoutRoute.name : mapLayer === "roads" ? "驿路图层" : mapLayer === "business" ? "商路图层" : mapLayer === "weather" ? "天候图层" : mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
+      <div className={`map-detail-readout ${hasRemoteCitySelection && !readoutRoute ? "is-city-selection" : ""}`} aria-live="polite">
+        <b>{readoutRoute ? readoutRoute.name : hasRemoteCitySelection && selectedCity ? selectedCity.name : mapLayer === "roads" ? "驿路图层" : mapLayer === "business" ? "商路图层" : mapLayer === "weather" ? "天候图层" : mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
           <span>{readoutRoute && readoutRouteWeather && readoutRouteCondition
             ? `${roadPresentationById.get(readoutRoute.id)?.label ?? TERRAIN_LABEL[readoutRoute.terrain]} · ${TERRAIN_LABEL[readoutRoute.terrain]} · ${readoutRoute.days}日 · ${readoutRouteCondition.seal}·${readoutRouteCondition.label} · ${readoutRouteWeather.seal}·${readoutRouteWeather.label}`
+            : hasRemoteCitySelection && selectedCity && selectedCityFaction && selectedCityCondition
+              ? `${selectedCityFaction.short}实控 · ${selectedCityCondition.label} · 东经${selectedCity.lon.toFixed(2)}° 北纬${selectedCity.lat.toFixed(2)}°`
             : `${visibleDetailedCities.size}座城楼${compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · ${landmarkLayout.length}枚路标 · ${borderRouteCount}处边路${captivityMarkers.length ? ` · ${captivityMarkers.length}处失陷` : ""}`}</span>
+          {hasRemoteCitySelection && !readoutRoute && <small>已选城驿 · 点按其他城楼可立即切换</small>}
           {mapLayer === "roads" && <small>粗细区分干道、通衢与支路 · 常态只盖干道章，点选道路再显专属路章</small>}
           {mapLayer === "business" && <><small>本号走过 {traveledBusinessRouteCount} 段 · 近账盈利 {profitableBusinessRouteCount} 段 · 总账净银 {businessLedgerNet >= 0 ? "+" : ""}{businessLedgerNet} 两</small><small>线色取自最近十二趟真实账页；点击道路查看熟路与分摊收支</small></>}
           {mapLayer === "weather" && <><small>{calendarDate.fullLabel} · {seasonalAdvisory.title}：{seasonalAdvisory.summary}</small><small>区域锋面与受影响道路同色显影 · 牌面标出强度、余日与行路影响</small></>}
@@ -1480,9 +1484,15 @@ export default function WorldMap({
                   r={Math.max(4.5, Math.min(9.5, hitRadius * .64))}
                   role="button"
                   tabIndex={0}
+                  aria-pressed={selected}
                   aria-label={`${city.name}，${faction.name}，${condition.label}${frontline.visible ? `，战线${frontline.label}` : ""}${stale ? "，情报可能过期" : ""}`}
                   onClick={handleCityHit}
-                  onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelectCity(city.id); }}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter" && event.key !== " ") return;
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onSelectCity(city.id);
+                  }}
                 />
                 <title>{city.name} · 东经 {city.lon.toFixed(2)}° · 北纬 {city.lat.toFixed(2)}°{frontline.visible ? ` · ${frontline.label} · 守势 ${frontline.defense} / 兵压 ${frontline.pressure}` : ""}</title>
               </g>
@@ -1531,6 +1541,7 @@ export default function WorldMap({
                     expandCityCluster(cluster.cityIds);
                   }}
                 >
+                  <circle className="city-cluster-hit" r={cityClusterHitRadius(cluster.radius, mapDetail)} />
                   {markerLayout?.displaced && <g className="settlement-anchor" aria-hidden="true">
                     <path d={`M0 0 L${anchorDx} ${anchorDy}`} />
                     <circle cx={anchorDx} cy={anchorDy} r="1.45" />

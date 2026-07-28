@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { CityDefinition, CityTier } from "../src/core/types";
-import { detailedCityIds, nearestCityToPoint } from "../src/map/cityMarkers";
+import { cityMarkerHitRadius, detailedCityIds, nearestCityToPoint } from "../src/map/cityMarkers";
 
 function city(id: string, x: number, y: number, tier: CityTier): CityDefinition {
   return {
@@ -57,5 +57,11 @@ describe("progressive city markers", () => {
   it("resolves overlapping hit areas to the city nearest the pointer", () => {
     expect(nearestCityToPoint(cities, { x: 113, y: 100 })?.id).toBe("near-major");
     expect(nearestCityToPoint(cities, { x: 148, y: 101 })?.id).toBe("far-major");
+  });
+
+  it("gives realm-view cities a larger invisible target without changing their tier", () => {
+    expect(cityMarkerHitRadius(cities[1], "wide", false)).toBe(18);
+    expect(cityMarkerHitRadius(cities[1], "mid", false)).toBe(10);
+    expect(cityMarkerHitRadius(cities[1], "close", true)).toBeGreaterThanOrEqual(6.5);
   });
 });
