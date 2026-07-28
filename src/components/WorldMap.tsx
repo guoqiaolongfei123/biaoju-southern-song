@@ -9,6 +9,7 @@ import { ROUTE_LANDMARKS, routeLandmarkKind, type RouteLandmarkKind } from "../c
 import { worldActorEffectLabel } from "../core/worldActorContent";
 import { rivalBureauByActor, rivalRank, rivalRelation } from "../core/rivalContent";
 import { regionalWeatherSnapshot, weatherEffectForRoute, weatherForCity, weatherForRoute } from "../core/weatherContent";
+import { gameCalendarDate, seasonalTravelAdvisory } from "../core/calendarContent";
 import { roadInfluenceSnapshot } from "../core/roadPowerContent";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
@@ -413,6 +414,8 @@ export default function WorldMap({
   const selectedRouteOwners = selectedRoute ? routeOwners(game.cities, selectedRoute) : null;
   const selectedRouteActors = selectedRoute ? game.worldActors.filter((actor) => actor.routeId === selectedRoute.id) : [];
   const regionalWeather = useMemo(() => regionalWeatherSnapshot(game.seed, game.day), [game.seed, game.day]);
+  const calendarDate = useMemo(() => gameCalendarDate(game.day), [game.day]);
+  const seasonalAdvisory = useMemo(() => seasonalTravelAdvisory(game.day), [game.day]);
   const visibleRegionalWeather = useMemo(() => {
     if (mapLayer === "weather") return regionalWeather;
     if (mapLayer === "roads") return [];
@@ -875,6 +878,7 @@ export default function WorldMap({
             <span><i className="layer-road-grade local">支</i>支路</span>
           </>}
           {mapLayer === "weather" && <>
+            <span className={`layer-key-note season-${seasonalAdvisory.season}`} title={seasonalAdvisory.summary}><i>{seasonalAdvisory.seal}</i>{calendarDate.seasonPeriodLabel} · {seasonalAdvisory.title}</span>
             <span className="layer-key-note"><i>候</i>{adverseWeatherCount}处恶候</span>
             {notableWeather.map((weather) => (
               <span key={weather.region.id} className={`weather-${weather.kind}`}><i>{weather.seal}</i>{weather.region.name}</span>
@@ -926,7 +930,7 @@ export default function WorldMap({
             ? `${roadPresentationById.get(readoutRoute.id)?.label ?? TERRAIN_LABEL[readoutRoute.terrain]} · ${TERRAIN_LABEL[readoutRoute.terrain]} · ${readoutRoute.days}日 · ${readoutRouteCondition.seal}·${readoutRouteCondition.label} · ${readoutRouteWeather.seal}·${readoutRouteWeather.label}`
             : `${visibleDetailedCities.size}座城楼${compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · ${landmarkLayout.length}枚路标 · ${borderRouteCount}处边路${captivityMarkers.length ? ` · ${captivityMarkers.length}处失陷` : ""}`}</span>
           {mapLayer === "roads" && <small>粗细区分干道、通衢与支路 · 常态只盖干道章，点选道路再显专属路章</small>}
-          {mapLayer === "weather" && <small>区域锋面与受影响道路同色显影 · 牌面标出强度、余日与行路影响</small>}
+          {mapLayer === "weather" && <><small>{calendarDate.fullLabel} · {seasonalAdvisory.title}：{seasonalAdvisory.summary}</small><small>区域锋面与受影响道路同色显影 · 牌面标出强度、余日与行路影响</small></>}
           {cityStackClusters.length > 0 && <small>{cityStackClusters.length}组密集城驿已合标 · 点击数字印放大展开</small>}
           {stackedLandmarkGroups > 0 && <small>{stackedLandmarkGroups}组相邻关渡已合标 · 放大继续展开</small>}
           {stackedActorGroups > 0 && <small>{stackedActorGroups}组同路行旅已合标 · 放大自动展开</small>}

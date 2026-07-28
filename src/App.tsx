@@ -85,6 +85,7 @@ import { EQUIPMENT } from "./core/equipmentContent";
 import { deputyBondRank } from "./core/deputyBondContent";
 import { frontlineSituation } from "./core/frontlineContent";
 import { weatherForCity } from "./core/weatherContent";
+import { gameCalendarDate } from "./core/calendarContent";
 import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from "./core/jianghuContent";
 import { rivalBureauViews, rivalRank } from "./core/rivalContent";
 import { updateRouteInfluence } from "./core/roadPowerContent";
@@ -1424,6 +1425,7 @@ function App() {
     setCityWorkspace(tab);
     window.requestAnimationFrame(() => sidePanelRef.current?.scrollTo({ top: 0, behavior: "smooth" }));
   };
+  const calendarDate = gameCalendarDate(game.day);
 
   return (
     <main className="game-root">
@@ -1432,7 +1434,11 @@ function App() {
           <span className="brand-mark">風雲</span>
           <span><b>镖局</b><small>天下行录</small></span>
         </button>
-        <div className="world-clock"><span>嘉定元年 · 第</span><b>{game.day}</b><span>日</span></div>
+        <div className="world-clock" title={`沙盘第 ${game.day} 日 · 公元约 ${calendarDate.gregorianYear} 年`}>
+          <span>{`嘉定${calendarDate.eraYearLabel} · ${calendarDate.seasonPeriodLabel}`}</span>
+          <b>{calendarDate.dateLabel}</b>
+          <em>第 {game.day} 日</em>
+        </div>
         <div className="resources" aria-label="镖局资源">
           <span><small>银两</small><b>{game.silver}</b></span>
           <span><small>补给</small><b>{game.supplies}</b></span>

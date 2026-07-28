@@ -37,9 +37,11 @@ describe("区域天候与路线预报", () => {
 
   it("季节、天下天候快照与远期预报可信度均有明确规则", () => {
     expect(weatherSeason(1)).toBe("spring");
-    expect(weatherSeason(40)).toBe("summer");
-    expect(weatherSeason(80)).toBe("autumn");
-    expect(weatherSeason(110)).toBe("winter");
+    expect(weatherSeason(90)).toBe("spring");
+    expect(weatherSeason(91)).toBe("summer");
+    expect(weatherSeason(181)).toBe("autumn");
+    expect(weatherSeason(271)).toBe("winter");
+    expect(weatherSeason(361)).toBe("spring");
     expect(regionalWeatherSnapshot(1208, 1)).toHaveLength(7);
     expect(weatherForecastConfidence(4, 4).tone).toBe("fresh");
     expect(weatherForecastConfidence(4, 8).tone).toBe("aging");

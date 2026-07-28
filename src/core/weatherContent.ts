@@ -81,10 +81,10 @@ function hashUnit(seed: number, period: number, salt: string): number {
 }
 
 export function weatherSeason(day: number): WeatherSeason {
-  const seasonDay = ((Math.max(1, day) - 1) % 120) + 1;
-  if (seasonDay <= 32) return "spring";
-  if (seasonDay <= 66) return "summer";
-  if (seasonDay <= 96) return "autumn";
+  const seasonDay = ((Math.max(1, Math.floor(day)) - 1) % 360) + 1;
+  if (seasonDay <= 90) return "spring";
+  if (seasonDay <= 180) return "summer";
+  if (seasonDay <= 270) return "autumn";
   return "winter";
 }
 

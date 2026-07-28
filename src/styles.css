@@ -131,8 +131,10 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .brand > span:last-child { display: grid; }
 .brand b { font: 25px/1.1 var(--font-display); letter-spacing: .22em; }
 .brand small { color: #807767; font-size: 10px; letter-spacing: .2em; }
-.world-clock { justify-self: center; display: flex; align-items: baseline; gap: 7px; color: var(--muted); font-size: 12px; letter-spacing: .12em; }
-.world-clock b { color: var(--gold-bright); font-size: 27px; font-weight: 500; }
+.world-clock { justify-self: center; display: grid; grid-template-columns: auto auto; align-items: baseline; gap: 1px 9px; color: var(--muted); letter-spacing: .12em; }
+.world-clock span { grid-column: 1 / -1; color: #8d806a; font-size: 9px; text-align: center; }
+.world-clock b { color: var(--gold-bright); font: 22px var(--font-display); font-weight: 500; letter-spacing: .1em; }
+.world-clock em { color: #887b65; font-size: 9px; font-style: normal; letter-spacing: .08em; }
 .resources { display: flex; gap: 4px; }
 .resources > span { min-width: 66px; display: grid; padding: 5px 12px; border-left: 1px solid var(--line); }
 .resources small { color: #827866; font-size: 11px; letter-spacing: .16em; }
