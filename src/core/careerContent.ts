@@ -136,7 +136,7 @@ export function careerEnding(game: GameState): CareerEndingView | null {
 }
 
 export function careerDefeat(game: GameState): CareerEndingId | null {
-  const fitCrew = game.crew.filter((member) => member.hp >= 20).length;
+  const fitCrew = game.crew.filter((member) => member.hp >= 20 && !member.captivity).length;
   if (game.reputation <= 0) return "credit-collapse";
   if (game.convoy.leaderHp <= 1 && fitCrew < 3) return "convoy-ruin";
   if (game.silver <= 0 && game.supplies <= 0 && game.convoy.cartHp <= 15) return "insolvent";

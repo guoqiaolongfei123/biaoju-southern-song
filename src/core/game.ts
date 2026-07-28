@@ -59,6 +59,7 @@ import { LEGACY_BOONS, legacyStartingModifiers } from "./legacyContent";
 import { CREW_DISCIPLINES, crewDisciplineById } from "./crewDisciplineContent";
 import { crewMasteryForRole } from "./crewMasteryContent";
 import { crewInjuryById, mergeCrewInjury, recoverCrewInjury } from "./injuryContent";
+import { captivityRansomFor, captivityReleaseOffer } from "./captivityContent";
 import { FORMATION_PROFICIENCIES, createFormationExperience, formationExperienceAwards, formationProficiencyRank, normalizeFormationExperience } from "./formationProficiency";
 import { PLAYER_LEADER_ID, createInitialLeader } from "./leaderContent";
 import { deputyBondRank } from "./deputyBondContent";
@@ -123,7 +124,7 @@ import type {
 
 export type ServiceType = "supplies" | "repair" | "heal" | "intel" | "stable";
 
-const CREW_TEMPLATES: Array<Omit<CrewMember, "disciplineId" | "injury" | "formationExperience">> = [
+const CREW_TEMPLATES: Array<Omit<CrewMember, "disciplineId" | "injury" | "captivity" | "formationExperience">> = [
   { id: "lu-cang", name: "鲁沧", courtesy: "定川", role: "副镖头", hp: 100, maxHp: 100, experience: 0, wage: 12, specialty: "临阵压阵", biography: "河东军伍出身，守车与断后皆稳，是总号里最能镇住场面的人。", hiringCost: 0, originCityId: "linan" },
   { id: "qiao-qing", name: "乔青", courtesy: "踏雪", role: "趟子手", hp: 88, maxHp: 88, experience: 0, wage: 7, specialty: "探路识伏", biography: "脚程轻快，记得沿途每一家驿站和每一道暗哨。", hiringCost: 0, originCityId: "linan" },
   { id: "he-sheng", name: "何胜", courtesy: "铁轴", role: "车把式", hp: 92, maxHp: 92, experience: 0, wage: 8, specialty: "护轮修车", biography: "能听车轴声辨出裂纹，走坏路时可大幅降低镖车损伤。", hiringCost: 0, originCityId: "linan" },
@@ -132,12 +133,12 @@ const CREW_TEMPLATES: Array<Omit<CrewMember, "disciplineId" | "injury" | "format
 ];
 
 export function createInitialCrew(): CrewMember[] {
-  return CREW_TEMPLATES.map((member) => ({ ...member, disciplineId: null, injury: null, formationExperience: createFormationExperience() }));
+  return CREW_TEMPLATES.map((member) => ({ ...member, disciplineId: null, injury: null, captivity: null, formationExperience: createFormationExperience() }));
 }
 
 export function crewBattleGuards(crew: CrewMember[], ids: string[], loadouts: GameState["crewEquipment"] = {}, tuning: Partial<GameState["equipmentTuning"]> = {}) {
   const powerByRole: Record<CrewRole, number> = { 副镖头: 1.2, 趟子手: 1.05, 车把式: 0.92, 账房: 0.82, 医师: 0.78, 向导: 0.96, 厨子: 0.86 };
-  return ids.map((id) => crew.find((member) => member.id === id)).filter((member): member is CrewMember => Boolean(member)).map((member) => {
+  return ids.map((id) => crew.find((member) => member.id === id)).filter((member): member is CrewMember => Boolean(member) && !member!.captivity).map((member) => {
     const equipment = equipmentStats(loadouts[member.id], tuning);
     const discipline = crewDisciplineById(member.disciplineId);
     const disciplineModifiers = discipline?.modifiers;
@@ -183,7 +184,7 @@ export function leaderBattleProfile(game: GameState): NonNullable<BattleConfig["
   const injuryModifiers = injury?.modifiers;
   const equipmentIds = Object.values(loadout).filter((id): id is EquipmentId => Boolean(id));
   const battleCrewIds = game.journey?.crewIds.length ? game.journey.crewIds : game.activeCrewIds;
-  const deputy = battleCrewIds.map((id) => game.crew.find((member) => member.id === id)).find((member) => member?.role === "副镖头");
+  const deputy = battleCrewIds.map((id) => game.crew.find((member) => member.id === id)).find((member) => member?.role === "副镖头" && !member.captivity);
   return {
     name: game.leader.name,
     experience: game.leader.experience,
@@ -207,7 +208,7 @@ export function leaderBattleProfile(game: GameState): NonNullable<BattleConfig["
 
 function journeyCrew(game: GameState): CrewMember[] {
   const ids = game.journey?.crewIds.length ? game.journey.crewIds : game.activeCrewIds;
-  return ids.map((id) => game.crew.find((member) => member.id === id)).filter((member): member is CrewMember => Boolean(member));
+  return ids.map((id) => game.crew.find((member) => member.id === id)).filter((member): member is CrewMember => Boolean(member) && !member!.captivity);
 }
 
 function journeyHasRole(game: GameState, role: CrewRole): boolean {
@@ -864,7 +865,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 21,
+    version: 22,
     seed,
     originId,
     legacyId,
@@ -1232,7 +1233,7 @@ export function setCoreCombatFocus(game: GameState, coreCombatFocusId: CoreComba
 export function toggleJourneyCrew(game: GameState, memberId: string): GameState {
   if (game.phase !== "planning" || !game.journey) return game;
   const member = game.crew.find((item) => item.id === memberId);
-  if (!member || member.hp < 20) return game;
+  if (!member || member.hp < 20 || member.captivity) return game;
   const selected = game.activeCrewIds.includes(memberId);
   if (!selected && game.activeCrewIds.length >= 3) return game;
   const activeCrewIds = selected
@@ -1243,7 +1244,10 @@ export function toggleJourneyCrew(game: GameState, memberId: string): GameState 
 
 export function chooseRoute(game: GameState, plan: RoutePlan): GameState {
   if (game.phase !== "planning" || !game.journey || game.activeCrewIds.length !== 3) return game;
-  const ready = game.activeCrewIds.every((id) => (game.crew.find((member) => member.id === id)?.hp ?? 0) >= 20);
+  const ready = game.activeCrewIds.every((id) => {
+    const member = game.crew.find((candidate) => candidate.id === id);
+    return Boolean(member && !member.captivity && member.hp >= 20);
+  });
   if (!ready) return game;
   const cover = travelCoverById(game.journey.coverId);
   if (game.silver < cover.cost) return game;
@@ -3229,7 +3233,7 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
   const deputyName = deputyId ? game.crew.find((member) => member.id === deputyId)?.name ?? "副镖头" : null;
   const deputyBondRankBefore = deputyBondRank(deputyBondBefore);
   const deputyBondRankAfter = deputyBondRank(deputyBondAfter);
-  const crew = game.crew.map((member) => {
+  let crew = game.crew.map((member) => {
     const damage = result.guardDamage[member.id] ?? 0;
     const injuryId = result.guardInjuries?.[member.id];
     const experienceGain = result.guardExperience?.[member.id]
@@ -3258,12 +3262,46 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
     }
     return { ...member, hp: Math.max(0, member.hp - damage), injury, experience, formationExperience };
   });
-  const guardsFit = game.journey?.crewIds.filter((id) => (crew.find((member) => member.id === id)?.hp ?? 0) >= 20).length ?? 0;
+  let activeCrewIds = game.activeCrewIds;
+  let journey = game.journey ? {
+    ...game.journey,
+    battleVictories: (game.journey.battleVictories ?? 0) + (result.outcome === "complete" ? 1 : 0),
+    escortHealth: game.journey.contract.kind === "escort"
+      ? Math.max(0, (game.journey.escortHealth ?? 100) - (result.clientDamage ?? 0))
+      : game.journey.escortHealth,
+  } : null;
+  const captureReports: string[] = [];
+  const completedRouteId = journey?.plan.routeIds[journey.segmentIndex];
+  if ((result.outcome === "defeat" || result.outcome === "retreat") && completedRouteId) {
+    const participatingIds = new Set(game.pendingBattle.guards.map((guard) => guard.id));
+    const captured = crew
+      .filter((member) => participatingIds.has(member.id) && !member.captivity && member.hp <= 0)
+      .sort((left, right) => right.experience - left.experience || right.wage - left.wage || left.id.localeCompare(right.id))[0];
+    if (captured && journey) {
+      const route = routeById(completedRouteId);
+      const captivity = {
+        routeId: route.id,
+        captor: game.pendingBattle.enemyFaction,
+        sinceDay: game.day,
+        ransom: captivityRansomFor(captured, route.danger),
+      };
+      crew = crew.map((member) => member.id === captured.id ? { ...member, hp: Math.max(1, member.hp), captivity } : member);
+      activeCrewIds = activeCrewIds.filter((id) => id !== captured.id);
+      journey = { ...journey, crewIds: journey.crewIds.filter((id) => id !== captured.id) };
+      const endpoints = [cityById(route.from).name, cityById(route.to).name].join("或");
+      captureReports.push(`${captured.name}在${route.name}断后失陷，被${captivity.captor}扣走；须到${endpoints}设法赎回`);
+    }
+  }
+  const guardsFit = journey?.crewIds.filter((id) => {
+    const member = crew.find((candidate) => candidate.id === id);
+    return Boolean(member && !member.captivity && member.hp >= 20);
+  }).length ?? 0;
   const battleNews = [
     ...(result.enemyLeaderDefeated ? [`【阵斩匪首】${game.pendingBattle.enemyLeaderName ?? "山寨匪首"}逼战失利、伏诛阵前，沿路匪众闻风失胆，江湖声望 +2。`] : (result.leaderChallenges ?? 0) > 0 ? [`【匪首遁走】${game.pendingBattle.enemyLeaderName ?? "山寨匪首"}曾弃旗逼战，终在车队脱阵时趁乱退走。`] : []),
     ...((result.cartRepair ?? 0) > 0 ? [`【阵前抢修】车把式在交战中抢回 ${(result.cartRepair ?? 0)} 分车况，镖车得以继续赶路。`] : []),
     ...(result.clientDowned ? [`【活镖失守】${game.pendingBattle.escortClient?.name ?? "护送之人"}重伤倒地，此单已难照原约交割。`] : (result.clientDamage ?? 0) > 0 ? [`【活镖负伤】${game.pendingBattle.escortClient?.name ?? "护送之人"}在阵中受伤 ${(result.clientDamage ?? 0)} 分。`] : []),
     ...(result.bannerLost ? ["【镖旗失守】风云行旗号被夺，商业信用 -2、江湖声望 -5。"] : result.bannerRecovered ? ["【夺旗复得】夺旗手未能脱阵，众人重新把镖旗立回车前。"] : []),
+    ...(captureReports.length ? [`【队员被俘】${captureReports.join("；")}。此人已从随行点将中移除。`] : []),
     ...(rankReports.length ? [`【人物晋阶】${rankReports.join("；")}。新的战职、绝活与装备门槛已随名望解开。`] : []),
     ...(leaderExperienceGain > 0 ? [`【总镖头记功】${game.leader.name}${result.leaderContribution ? `「${result.leaderContribution.title}」` : ""}阅历 +${leaderExperienceGain}${leaderFormationReports.length ? `；${leaderFormationReports.join("；")}` : ""}。`] : []),
     ...(martialReports.length ? [`【武学得法】${martialReports.join("；")}。绝技由总镖头自行择机，所用越熟，招路越稳。`] : []),
@@ -3280,13 +3318,8 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
     jianghuReputation: clampJianghuReputation(game.jianghuReputation + (result.enemyLeaderDefeated ? 2 : 0) - (result.bannerLost ? 5 : 0)),
     leader,
     crew,
-    journey: game.journey ? {
-      ...game.journey,
-      battleVictories: (game.journey.battleVictories ?? 0) + (result.outcome === "complete" ? 1 : 0),
-      escortHealth: game.journey.contract.kind === "escort"
-        ? Math.max(0, (game.journey.escortHealth ?? 100) - (result.clientDamage ?? 0))
-        : game.journey.escortHealth,
-    } : null,
+    activeCrewIds,
+    journey,
     convoy: { ...convoy, guardsFit },
     pendingBattle: null,
     news: battleNews.length ? [...battleNews, ...game.news].slice(0, 6) : game.news,
@@ -3326,7 +3359,10 @@ export function continueAfterSettlement(game: GameState): GameState {
       ...game.convoy,
       leaderHp: Math.min(100, game.convoy.leaderHp + 12),
       morale: Math.min(100, game.convoy.morale + 8),
-      guardsFit: game.activeCrewIds.filter((id) => (game.crew.find((member) => member.id === id)?.hp ?? 0) >= 20).length,
+      guardsFit: game.activeCrewIds.filter((id) => {
+        const member = game.crew.find((candidate) => candidate.id === id);
+        return Boolean(member && !member.captivity && member.hp >= 20);
+      }).length,
       cargoIntegrity: 100,
       sealIntact: true,
       horseStamina: Math.min(100, game.convoy.horseStamina + 15),
@@ -3346,7 +3382,7 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
     news: [`【马院歇养】${HORSE_TEAMS[game.convoy.horseTeamId].name}已经饮水、刷洗并重新钉掌。`, ...game.news].slice(0, 6),
   };
   if (service === "heal" && game.silver >= cost) {
-    const hasDoctor = game.crew.some((member) => member.role === "医师" && member.hp > 0);
+    const hasDoctor = game.crew.some((member) => member.role === "医师" && member.hp > 0 && !member.captivity);
     const treatmentDays = hasDoctor ? 4 : 3;
     const treated: string[] = [];
     const recovered: string[] = [];
@@ -3357,6 +3393,7 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
     }
     const leader = leaderInjury === game.leader.injury ? game.leader : { ...game.leader, injury: leaderInjury };
     const crew = game.crew.map((member) => {
+      if (member.captivity) return member;
       const injury = recoverCrewInjury(member.injury, treatmentDays);
       if (member.injury) {
         treated.push(member.name);
@@ -3364,7 +3401,10 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
       }
       return { ...member, hp: Math.min(member.maxHp, member.hp + (member.role === "医师" ? 40 : hasDoctor ? 34 : 28)), injury };
     });
-    const guardsFit = game.activeCrewIds.filter((id) => (crew.find((member) => member.id === id)?.hp ?? 0) >= 20).length;
+    const guardsFit = game.activeCrewIds.filter((id) => {
+      const member = crew.find((candidate) => candidate.id === id);
+      return Boolean(member && !member.captivity && member.hp >= 20);
+    }).length;
     const treatmentNote = treated.length
       ? `并为${treated.join("、")}换药正骨${recovered.length ? `；${recovered.join("、")}的旧伤已经解除` : "，仍需继续休养"}`
       : "众人气血已重新调理";
@@ -3390,6 +3430,28 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
     };
   }
   return game;
+}
+
+export function releaseCaptiveCrew(game: GameState, crewId: string): GameState {
+  const offer = captivityReleaseOffer(game, crewId);
+  const member = game.crew.find((candidate) => candidate.id === crewId);
+  if (!member?.captivity || !offer.enabled) return game;
+  const captivity = member.captivity;
+  const releasedCrew = game.crew.map((candidate) => candidate.id === crewId ? {
+    ...candidate,
+    hp: Math.max(candidate.hp, Math.ceil(candidate.maxHp * .22)),
+    captivity: null,
+  } : candidate);
+  const paid = {
+    ...game,
+    silver: game.silver - offer.cost,
+    crew: releasedCrew,
+  };
+  const advanced = withWorldAdvance(paid, offer.days);
+  return {
+    ...advanced,
+    news: [`【赎人归队】${member.name}已从${captivity.captor}手中接回；支用 ${offer.cost} 两，往返耽搁 ${offer.days} 日。伤势仍需另行调养。`, ...advanced.news].slice(0, 6),
+  };
 }
 
 export function wagonPurchaseCost(game: GameState, wagonId: WagonId): number {
@@ -3492,6 +3554,7 @@ export function equipCrewItem(game: GameState, crewId: string, equipmentId: Equi
   if (game.phase !== "map" || !(equipmentId in EQUIPMENT)) return game;
   const member = game.crew.find((item) => item.id === crewId);
   const isLeader = crewId === PLAYER_LEADER_ID;
+  if (!isLeader && member?.captivity) return game;
   const item = EQUIPMENT[equipmentId];
   const experience = isLeader ? game.leader.experience : member?.experience;
   if (experience === undefined || crewRank(experience).level < item.requiredRank) return game;
@@ -3507,6 +3570,7 @@ export function equipCrewItem(game: GameState, crewId: string, equipmentId: Equi
 
 export function unequipCrewItem(game: GameState, crewId: string, slot: EquipmentSlot): GameState {
   if (game.phase !== "map") return game;
+  if (game.crew.find((member) => member.id === crewId)?.captivity) return game;
   const current = game.crewEquipment[crewId];
   if (!current?.[slot]) return game;
   const next = { ...current };
@@ -3526,6 +3590,7 @@ export function trainCrew(game: GameState, crewId: string): GameState {
   const member = game.crew.find((item) => item.id === crewId);
   const cost = crewTrainingCost(game, crewId);
   const isLeader = crewId === PLAYER_LEADER_ID;
+  if (!isLeader && member?.captivity) return game;
   if ((!member && !isLeader) || cost <= 0 || game.silver < cost) return game;
   if (isLeader) return {
     ...game,
@@ -3550,7 +3615,7 @@ export function crewDisciplineChangeCost(game: GameState, crewId: string): numbe
 export function setCrewDiscipline(game: GameState, crewId: string, disciplineId: CrewDisciplineId): GameState {
   if (game.phase !== "map" || !(disciplineId in CREW_DISCIPLINES)) return game;
   const member = game.crew.find((item) => item.id === crewId);
-  if (!member || crewRank(member.experience).level < 1 || member.disciplineId === disciplineId) return game;
+  if (!member || member.captivity || crewRank(member.experience).level < 1 || member.disciplineId === disciplineId) return game;
   const cost = crewDisciplineChangeCost(game, crewId);
   if (game.silver < cost) return game;
   const discipline = CREW_DISCIPLINES[disciplineId];

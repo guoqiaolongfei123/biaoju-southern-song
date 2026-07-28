@@ -1,6 +1,7 @@
 import { pickRandom, randomInt } from "./rng";
 import { CREW_DISCIPLINES } from "./crewDisciplineContent";
 import { normalizeCrewInjury } from "./injuryContent";
+import { normalizeCrewCaptivity } from "./captivityContent";
 import { createFormationExperience, normalizeFormationExperience } from "./formationProficiency";
 import type { CityTier, CrewDisciplineId, CrewMember, CrewRole } from "./types";
 
@@ -56,6 +57,7 @@ export function normalizeCrewMember(member: Partial<CrewMember> & Pick<CrewMembe
       ? member.disciplineId as CrewDisciplineId
       : null,
     injury: normalizeCrewInjury(member.injury),
+    captivity: normalizeCrewCaptivity(member.captivity),
     formationExperience: normalizeFormationExperience(member.formationExperience),
   };
 }
@@ -94,6 +96,7 @@ export function generateRecruitPool(
       originCityId: cityId,
       disciplineId: null,
       injury: null,
+      captivity: null,
       formationExperience: createFormationExperience(),
     });
     available = available.filter((item) => item.id !== template.id);

@@ -40,11 +40,11 @@ describe("江湖声望", () => {
     }
   });
 
-  it("v19 旧档会从原共享声望推定江湖根基并升级到 v21", () => {
+  it("v19 旧档会从原共享声望推定江湖根基并升级到 v22", () => {
     const oldSave = { ...createInitialGame(1107), version: 19 } as unknown as Record<string, unknown>;
     delete oldSave.jianghuReputation;
     const migrated = migrateSavedGame(oldSave);
-    expect(migrated?.version).toBe(21);
+    expect(migrated?.version).toBe(22);
     expect(migrated?.jianghuReputation).toBe(Math.round(Number(oldSave.reputation) * 0.5));
   });
 });

@@ -31,6 +31,19 @@ describe("city action priority", () => {
     expect(cityActionPriority(game)).toMatchObject({ tab: "crew", seal: "人" });
   });
 
+  it("puts a captive crew member ahead of routine city work", () => {
+    const game = createInitialGame(1208, "linan-guild");
+    game.crew[0].captivity = {
+      routeId: "linan-jiankang",
+      captor: "采石矶水寨",
+      sinceDay: 8,
+      ransom: 52,
+    };
+    const priority = cityActionPriority(game);
+    expect(priority).toMatchObject({ tab: "crew", seal: "俘", tone: "danger" });
+    expect(priority.detail).toContain(game.crew[0].name);
+  });
+
   it("routes a fit convoy to the contract board", () => {
     const game = createInitialGame(1208, "linan-guild");
     const priority = cityActionPriority(game);

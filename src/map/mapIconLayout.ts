@@ -60,12 +60,14 @@ export function layoutMapActors(
   actors: readonly MapActorPoint[],
   cityObstacles: readonly MapIconObstacle[],
   detail: MapDetail,
+  groupNearby = true,
+  radiusPadding = 0,
 ): MapActorLayout[] {
   const ordered = [...actors].sort((a, b) =>
     KIND_PRIORITY[b.kind] - KIND_PRIORITY[a.kind] || a.id.localeCompare(b.id),
   );
   const groups: MapActorPoint[][] = [];
-  const threshold = GROUP_DISTANCE[detail];
+  const threshold = groupNearby ? GROUP_DISTANCE[detail] : 0;
 
   for (const actor of ordered) {
     const group = threshold > 0
@@ -86,7 +88,7 @@ export function layoutMapActors(
     const sorted = [...group].sort((a, b) => KIND_PRIORITY[b.kind] - KIND_PRIORITY[a.kind] || a.id.localeCompare(b.id));
     const anchorX = group.reduce((sum, actor) => sum + actor.x, 0) / group.length;
     const anchorY = group.reduce((sum, actor) => sum + actor.y, 0) / group.length;
-    const radius = ICON_RADIUS[detail] + (group.length > 1 ? 1.5 : 0);
+    const radius = ICON_RADIUS[detail] + (group.length > 1 ? 1.5 : 0) + Math.max(0, radiusPadding);
     const ring = FIRST_RING[detail];
     const directions = [
       [0, 0],
@@ -94,6 +96,8 @@ export function layoutMapActors(
       [.72, -.72], [.72, .72], [-.72, .72], [-.72, -.72],
       [0, -2], [2, 0], [0, 2], [-2, 0],
       [1.45, -1.45], [1.45, 1.45], [-1.45, 1.45], [-1.45, -1.45],
+      [0, -3], [3, 0], [0, 3], [-3, 0],
+      [2.2, -2.2], [2.2, 2.2], [-2.2, 2.2], [-2.2, -2.2],
     ];
     const rotation = hashRotation(sorted.map((actor) => actor.id).join("|"));
     const compass = [directions[0], ...directions.slice(1 + rotation, 9), ...directions.slice(1, 1 + rotation), ...directions.slice(9)];

@@ -49,7 +49,7 @@ export async function saveGame(game: GameState): Promise<void> {
 export function migrateSavedGame(value: unknown): GameState | null {
   if (!value || typeof value !== "object") return null;
   const saved = value as Record<string, unknown>;
-  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21) return null;
+  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22) return null;
   const legacy = value as unknown as GameState;
   if (!legacy.cities || !legacy.day) return null;
   const originId: OriginId = typeof saved.originId === "string" && saved.originId in ORIGINS ? saved.originId as OriginId : "linan-guild";
@@ -68,7 +68,10 @@ export function migrateSavedGame(value: unknown): GameState | null {
   const equipmentTuning = normalizeEquipmentTuning(saved.equipmentTuning);
   const crewEquipment = normalizeCrewEquipment(saved.crewEquipment);
   const equipmentStock = Object.fromEntries(EQUIPMENT_LIST.map((item) => [item.id, Math.max(normalizedEquipmentStock[item.id], equippedCount(crewEquipment, item.id))])) as GameState["equipmentStock"];
-  const activeCrewIds = Array.isArray(saved.activeCrewIds) ? legacy.activeCrewIds : ["lu-cang", "qiao-qing", "he-sheng"];
+  const availableCrewIds = new Set(crew.filter((member) => !member.captivity).map((member) => member.id));
+  const activeCrewIds = [...new Set(Array.isArray(saved.activeCrewIds) ? legacy.activeCrewIds : ["lu-cang", "qiao-qing", "he-sheng"])]
+    .filter((id) => availableCrewIds.has(id))
+    .slice(0, 3);
   const legacyJourney = saved.journey as Record<string, unknown> | null;
   const legacyStance: TravelStance = typeof legacyJourney?.stance === "string" && legacyJourney.stance in TRAVEL_STANCES ? legacyJourney.stance as TravelStance : "steady";
   const legacyCoverId: TravelCoverId = typeof legacyJourney?.coverId === "string" && legacyJourney.coverId in TRAVEL_COVERS ? legacyJourney.coverId as TravelCoverId : "open-escort";
@@ -84,7 +87,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
     ? {
       ...legacyJourney,
       contract: journeyContract!,
-      crewIds: Array.isArray(legacyJourney.crewIds) ? legacyJourney.crewIds : activeCrewIds,
+      crewIds: [...new Set(Array.isArray(legacyJourney.crewIds) ? legacyJourney.crewIds as string[] : activeCrewIds)].filter((id) => availableCrewIds.has(id)),
       battleVictories: typeof legacyJourney.battleVictories === "number" ? Math.max(0, Math.floor(legacyJourney.battleVictories)) : 0,
       stance: legacyStance,
       coverId: legacyCoverId,
@@ -119,7 +122,9 @@ export function migrateSavedGame(value: unknown): GameState | null {
     escortClient: legacyBattle.escortClient ?? (journey?.contract.kind === "escort"
       ? { name: journey.contract.cargo, healthRatio: (journey.escortHealth ?? 100) / 100 }
       : undefined),
-    guards: Array.isArray(legacyBattle.guards) ? legacyBattle.guards : crewBattleGuards(crew, journey?.crewIds ?? activeCrewIds, crewEquipment, equipmentTuning),
+    guards: Array.isArray(legacyBattle.guards)
+      ? (legacyBattle.guards as NonNullable<GameState["pendingBattle"]>["guards"]).filter((guard) => availableCrewIds.has(guard.id))
+      : crewBattleGuards(crew, journey?.crewIds ?? activeCrewIds, crewEquipment, equipmentTuning),
   } as GameState["pendingBattle"] : null;
   const localEffect = cityStatusEffect(cities[legacy.currentCityId]);
   const initialCityReputation = createInitialCityReputation(headquartersCityId);
@@ -150,7 +155,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
     : Math.round((typeof saved.reputation === "number" ? saved.reputation : ORIGINS[originId].reputation) * 0.5));
   return {
     ...legacy,
-    version: 21,
+    version: 22,
     originId,
     legacyId,
     jianghuReputation,

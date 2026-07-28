@@ -17,8 +17,18 @@ export interface CityActionPriority {
  * without duplicating game rules in React.
  */
 export function cityActionPriority(game: GameState): CityActionPriority {
-  const injuredCrew = game.crew.filter((member) => member.injury || member.hp < member.maxHp * .58);
+  const captiveCrew = game.crew.filter((member) => member.captivity);
+  const injuredCrew = game.crew.filter((member) => !member.captivity && (member.injury || member.hp < member.maxHp * .58));
   const leaderInTrouble = Boolean(game.leader.injury) || game.convoy.leaderHp < 58;
+
+  if (captiveCrew.length > 0) return {
+    tab: "crew",
+    seal: "俘",
+    eyebrow: "队员失陷 · 名册战力空缺",
+    title: "先查看赎人路引",
+    detail: `${captiveCrew.map((member) => member.name).join("、")}仍被扣在路上；人物页会注明可托行院说项的两座城。`,
+    tone: "danger",
+  };
 
   if (leaderInTrouble || injuredCrew.length > 0) return {
     tab: "prepare",

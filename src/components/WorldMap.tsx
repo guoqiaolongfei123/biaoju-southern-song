@@ -469,6 +469,47 @@ export default function WorldMap({
     }
     return badges;
   }), [game.cities, game.routeIntel, mapDetail, activeRouteSignature, mapLayer]);
+  const captivityMarkerAnchors = useMemo(() => {
+    const groups = new Map<string, Array<{ id: string; name: string; captor: string }>>();
+    for (const member of game.crew) {
+      if (!member.captivity) continue;
+      const members = groups.get(member.captivity.routeId) ?? [];
+      members.push({ id: member.id, name: member.name, captor: member.captivity.captor });
+      groups.set(member.captivity.routeId, members);
+    }
+    return [...groups.entries()].flatMap(([routeId, members]) => {
+      const route = ROUTES.find((candidate) => candidate.id === routeId);
+      if (!route) return [];
+      const curve = routeCurve(route);
+      const dx = curve.to.x - curve.from.x;
+      const dy = curve.to.y - curve.from.y;
+      const length = Math.max(1, Math.hypot(dx, dy));
+      const offset = mapDetail === "wide" ? 13 : mapDetail === "mid" ? 9 : 6;
+      return [{
+        route,
+        members,
+        x: curve.mx - dy / length * offset,
+        y: curve.my + dx / length * offset,
+      }];
+    });
+  }, [game.crew, mapDetail]);
+  const captivityMarkerLayout = useMemo(() => layoutMapActors(
+    captivityMarkerAnchors.map((marker) => ({ id: marker.route.id, kind: "army" as const, x: marker.x, y: marker.y })),
+    [...cityIconObstacles, ...routeBadgeObstacles],
+    mapDetail,
+    false,
+    mapDetail === "wide" ? 8 : mapDetail === "mid" ? 5 : 3,
+  ), [captivityMarkerAnchors, cityIconObstacles, routeBadgeObstacles, mapDetail]);
+  const captivityMarkers = useMemo(() => captivityMarkerAnchors.flatMap((marker) => {
+    const layout = captivityMarkerLayout.find((candidate) => candidate.primaryActorId === marker.route.id);
+    return layout ? [{ ...marker, x: layout.x, y: layout.y, anchorX: layout.anchorX, anchorY: layout.anchorY, radius: layout.radius }] : [];
+  }), [captivityMarkerAnchors, captivityMarkerLayout]);
+  const captivityObstacles = useMemo<MapIconObstacle[]>(() => captivityMarkers.map((marker) => ({
+    id: `captivity:${marker.route.id}`,
+    x: marker.x,
+    y: marker.y,
+    radius: marker.radius,
+  })), [captivityMarkers]);
   const pinnedLandmarkRouteIds = useMemo(() => new Set([
     ...activeRouteIds,
     ...(previewCandidate?.routeIds ?? []),
@@ -490,7 +531,7 @@ export default function WorldMap({
       x: point.x,
       y: point.y,
     }];
-  }), [...cityIconObstacles, ...routeBadgeObstacles], mapDetail), [visibleLandmarks, cityIconObstacles, routeBadgeObstacles, mapDetail, pinnedLandmarkRouteIds]);
+  }), [...cityIconObstacles, ...routeBadgeObstacles, ...captivityObstacles], mapDetail), [visibleLandmarks, cityIconObstacles, routeBadgeObstacles, captivityObstacles, mapDetail, pinnedLandmarkRouteIds]);
   const landmarksById = useMemo(() => new Map(ROUTE_LANDMARKS.map((landmark) => [landmark.id, landmark])), []);
   const landmarkObstacles = useMemo<MapIconObstacle[]>(() => landmarkLayout.map((layout) => ({
     id: `landmark:${layout.id}`,
@@ -506,8 +547,8 @@ export default function WorldMap({
       const point = pointOnRoute(route, actor.progress, actor.fromCityId);
       return [{ id: actor.id, kind: actor.kind, x: point.x, y: point.y }];
     });
-    return layoutMapActors(points, [...cityIconObstacles, ...routeBadgeObstacles, ...landmarkObstacles], mapDetail);
-  }, [game.worldActors, mapDetail, cityIconObstacles, routeBadgeObstacles, landmarkObstacles, pinnedLandmarkRouteIds, routeCandidateSignature]);
+    return layoutMapActors(points, [...cityIconObstacles, ...routeBadgeObstacles, ...captivityObstacles, ...landmarkObstacles], mapDetail);
+  }, [game.worldActors, mapDetail, cityIconObstacles, routeBadgeObstacles, captivityObstacles, landmarkObstacles, pinnedLandmarkRouteIds, routeCandidateSignature]);
   const actorsById = useMemo(() => new Map(game.worldActors.map((actor) => [actor.id, actor])), [game.worldActors]);
   const actorObstacles = useMemo<MapIconObstacle[]>(() => actorLayout.map((layout) => ({
     id: `actor:${layout.id}`,
@@ -519,7 +560,7 @@ export default function WorldMap({
     const point = projectedLabel(...weather.region.center);
     const offset = weatherMarkerOffset[weather.region.id] ?? { x: 0, y: 0 };
     return { id: weather.region.id, x: point.x, y: point.y, offsetX: offset.x, offsetY: offset.y };
-  }), [...cityIconObstacles, ...routeBadgeObstacles, ...landmarkObstacles, ...actorObstacles], mapDetail), [visibleRegionalWeather, cityIconObstacles, routeBadgeObstacles, landmarkObstacles, actorObstacles, mapDetail]);
+  }), [...cityIconObstacles, ...routeBadgeObstacles, ...captivityObstacles, ...landmarkObstacles, ...actorObstacles], mapDetail), [visibleRegionalWeather, cityIconObstacles, routeBadgeObstacles, captivityObstacles, landmarkObstacles, actorObstacles, mapDetail]);
   const weatherByRegionId = useMemo(() => new Map<string, (typeof regionalWeather)[number]>(regionalWeather.map((weather) => [weather.region.id, weather])), [regionalWeather]);
   const notableWeather = useMemo(() => regionalWeather
     .filter((weather) => weather.kind !== "clear")
@@ -528,10 +569,11 @@ export default function WorldMap({
   const overlayLabelObstacles = useMemo<MapIconObstacle[]>(() => [
     ...cityClusterObstacles,
     ...routeBadgeObstacles,
+    ...captivityObstacles,
     ...landmarkObstacles,
     ...actorObstacles,
     ...weatherMarkerLayout.map((layout) => ({ id: `weather:${layout.id}`, x: layout.markerX, y: layout.markerY, radius: layout.radius })),
-  ], [cityClusterObstacles, routeBadgeObstacles, landmarkObstacles, actorObstacles, weatherMarkerLayout]);
+  ], [cityClusterObstacles, routeBadgeObstacles, captivityObstacles, landmarkObstacles, actorObstacles, weatherMarkerLayout]);
   const cityLabels = useMemo(
     () => layoutCityLabels(detailedCityList, viewport, mapDetail, pinnedCityIds, positionedIndividualCities, visibleDetailedCities, overlayLabelObstacles),
     [detailedCityList, viewport, mapDetail, pinnedCityIds, positionedIndividualCities, visibleDetailedCities, overlayLabelObstacles],
@@ -736,7 +778,7 @@ export default function WorldMap({
       )}
       <div className="map-detail-readout" aria-live="polite">
         <b>{mapLayer === "roads" ? "驿路图层" : mapLayer === "weather" ? "天候图层" : mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
-          <span>{visibleDetailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {landmarkLayout.length}枚路标 · {borderRouteCount}处边路</span>
+          <span>{visibleDetailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {landmarkLayout.length}枚路标 · {borderRouteCount}处边路{captivityMarkers.length ? ` · ${captivityMarkers.length}处失陷` : ""}</span>
           {mapLayer === "roads" && <small>官道、山路、水路依形制分绘 · 路况章与边界章已优先避让</small>}
           {mapLayer === "weather" && <small>区域天色与受影响道路同色显影 · 天候牌自动让开城驿</small>}
           {cityStackClusters.length > 0 && <small>{cityStackClusters.length}组密集城驿已合标 · 点击数字印放大展开</small>}
@@ -939,6 +981,26 @@ export default function WorldMap({
             );
           })}
         </g>
+
+        {captivityMarkers.length > 0 && <g className={`captivity-markers captivity-detail-${mapDetail}`} aria-label="队员失陷道路">
+          {captivityMarkers.map((marker) => {
+            const scale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .72 : .52;
+            const names = marker.members.map((member) => member.name).join("、");
+            const captors = [...new Set(marker.members.map((member) => member.captor))].join("、");
+            const endpoints = [CITIES.find((city) => city.id === marker.route.from)?.name, CITIES.find((city) => city.id === marker.route.to)?.name].filter(Boolean).join("或");
+            const displaced = Math.hypot(marker.x - marker.anchorX, marker.y - marker.anchorY) > 1;
+            return <g key={marker.route.id} className="captivity-marker" transform={`translate(${marker.x} ${marker.y})`} role="img" aria-label={`${names}在${marker.route.name}被俘`}>
+              {displaced && <path className="captivity-anchor-line" d={`M0 0 L${marker.anchorX - marker.x} ${marker.anchorY - marker.y}`} />}
+              <g transform={`scale(${scale})`}>
+                <circle className="captivity-marker-halo" r="9" />
+                <path className="captivity-marker-paper" d="M-6.7 -7.6 L6.3 -6.3 L7.2 6.7 L-5.8 7.7 Z" />
+                <text y="3.2" textAnchor="middle">俘</text>
+                {marker.members.length > 1 && <g className="captivity-marker-count" transform="translate(7 -7)"><circle r="4.1" /><text y="1.6" textAnchor="middle">{marker.members.length}</text></g>}
+              </g>
+              <title>{names} · 被{captors}扣于{marker.route.name} · 可到{endpoints}托行院赎回</title>
+            </g>;
+          })}
+        </g>}
 
         <g className={`map-route-landmarks landmark-detail-${mapDetail}`} aria-label="沿途关隘、渡口、驿亭与寨市">
           {landmarkLayout.map((layout) => {
@@ -1234,6 +1296,7 @@ export default function WorldMap({
         <span><i className="legend-traveler rival" />同行镖队</span>
         <span><i className="legend-current-city">镖</i>镖队所在</span>
         <span><i className="legend-border-route">界</i>异旗边路</span>
+        {captivityMarkers.length > 0 && <span><i className="legend-captivity">俘</i>队员失陷</span>}
         <span><i className="legend-weather">雨</i>区域天候</span>
         <span><i className="legend-stack">2</i>同路合标</span>
         <span><i className="legend-station-dot" />驿城标点</span>

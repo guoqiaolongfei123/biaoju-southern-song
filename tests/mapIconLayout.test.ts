@@ -20,6 +20,13 @@ describe("layoutMapActors", () => {
     expect(Math.hypot(layout[0].x - layout[1].x, layout[0].y - layout[1].y)).toBeGreaterThanOrEqual(9.5);
   });
 
+  it("can keep persistent route tokens separate while still avoiding occupied marks", () => {
+    const layout = layoutMapActors(actors, [{ id: "city", x: 100, y: 100, radius: 11 }], "wide", false);
+    expect(layout).toHaveLength(2);
+    expect(layout.every((item) => item.actorIds.length === 1)).toBe(true);
+    expect(layout.every((item) => Math.hypot(item.x - 100, item.y - 100) >= 16)).toBe(true);
+  });
+
   it("moves a road actor away from a city while preserving its true anchor", () => {
     const layout = layoutMapActors(
       [{ id: "patrol", kind: "patrol", x: 100, y: 100 }],

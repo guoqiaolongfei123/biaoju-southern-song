@@ -205,6 +205,14 @@ export interface CrewMember {
   originCityId: string;
   disciplineId: CrewDisciplineId | null;
   injury: CrewInjury | null;
+  captivity: CrewCaptivity | null;
+}
+
+export interface CrewCaptivity {
+  routeId: string;
+  captor: string;
+  sinceDay: number;
+  ransom: number;
 }
 
 export interface LeaderProgression {
@@ -443,7 +451,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 21;
+  version: 22;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;

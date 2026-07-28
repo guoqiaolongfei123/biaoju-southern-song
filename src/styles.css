@@ -1341,3 +1341,42 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .01ms !important; }
 }
+
+/* Persistent battle consequence: captivity */
+.captivity-markers { pointer-events: none; }
+.captivity-marker { color: #8f3029; filter: drop-shadow(0 1.5px 1.4px rgba(42,22,14,.78)); }
+.captivity-marker-halo { fill: rgba(236,214,169,.84); stroke: rgba(75,42,25,.62); stroke-width: 1.1; }
+.captivity-marker-paper { fill: #742d28; stroke: #edd49a; stroke-width: 1.05; }
+.captivity-marker > g > text { fill: #f1d9a6; font: 9px var(--font-display); }
+.captivity-marker-count circle { fill: #2e2118; stroke: #e1c27d; stroke-width: .8; }
+.captivity-marker-count text { fill: #f4ddb0; font: 6px var(--font-body); }
+.captivity-anchor-line { fill: none; stroke: #8b3c30; stroke-width: 1.1; stroke-dasharray: 2 1.5; opacity: .78; }
+.map-layer-weather .captivity-markers { opacity: .72; }
+.legend-captivity { width: 13px; height: 13px; display: grid; place-items: center; color: #f3dab0; background: #7a3029; border: 1px solid #d9b773; border-radius: 1px; font: 8px var(--font-display); font-style: normal; transform: rotate(-2deg); }
+
+.crew-overview .crew-captivity-tag { grid-column: 2; width: fit-content; padding: 2px 6px; color: #e0a078; border: 1px solid rgba(187,69,51,.44); background: rgba(110,34,27,.24); font-size: 10px; font-style: normal; }
+.crew-overview .is-captive { border-color: rgba(190,67,49,.5); box-shadow: inset 3px 0 rgba(167,55,43,.62); background: linear-gradient(90deg, rgba(102,34,27,.2), rgba(255,255,255,.012)); }
+.crew-overview .is-captive i em { background: #73372f; }
+.equipment-crew-tabs button.is-captive { border-color: rgba(178,65,50,.36); background: rgba(91,31,25,.17); }
+.equipment-crew-tabs button.is-captive > i { color: #e09a7b; border-color: rgba(190,74,55,.66); background: rgba(111,36,27,.2); transform: rotate(-2deg); }
+.equipment-crew-tabs button.is-captive small { color: #aa6f60; }
+.crew-picks button.is-captive:disabled { opacity: .72; border-color: rgba(179,65,49,.38); background: linear-gradient(90deg, rgba(100,33,26,.2), rgba(18,15,11,.44)); box-shadow: inset 3px 0 rgba(164,56,43,.5); }
+.crew-picks button.is-captive > span, .crew-picks button.is-captive > small { color: #b16f5d; }
+.crew-picks button.is-captive > i em { background: #70342d; }
+
+.crew-captivity-slip { display: grid; grid-template-columns: 48px minmax(0,1fr) minmax(170px,auto); align-items: center; gap: 12px; margin: 9px 0 12px; padding: 11px 12px; border: 1px solid rgba(189,68,51,.43); border-left: 4px solid #a84437; background: linear-gradient(98deg, rgba(119,38,30,.27), rgba(42,28,20,.2) 64%, rgba(18,15,12,.26)); box-shadow: inset 0 0 26px rgba(105,31,25,.1); }
+.crew-captivity-slip > i { width: 45px; height: 48px; display: grid; place-items: center; color: #e6a27f; border: 3px double rgba(205,83,61,.67); background: rgba(100,31,25,.2); font: 23px var(--font-display); font-style: normal; transform: rotate(-2deg); }
+.crew-captivity-slip > span { min-width: 0; display: grid; gap: 3px; }
+.crew-captivity-slip small { color: #a66e5e; font-size: 10px; letter-spacing: .1em; }
+.crew-captivity-slip b { color: #e1b18f; font: 16px var(--font-display); letter-spacing: .05em; }
+.crew-captivity-slip em { color: #9f8b7a; font-size: 11px; line-height: 1.5; font-style: normal; }
+.crew-captivity-slip > div { display: grid; gap: 6px; justify-items: stretch; }
+.crew-captivity-slip > div strong { color: #b98569; font-size: 10px; font-weight: 400; text-align: center; }
+.crew-captivity-slip > div button { min-height: 39px; padding: 7px 10px; color: #e4b780; border: 1px solid rgba(200,114,66,.43); background: linear-gradient(145deg, rgba(121,62,31,.34), rgba(72,35,25,.24)); font-size: 11px; }
+.crew-captivity-slip > div button:disabled { color: #7d6658; border-color: rgba(139,91,67,.2); background: rgba(50,38,30,.17); cursor: not-allowed; }
+
+@media (max-width: 720px) {
+  .crew-captivity-slip { grid-template-columns: 44px minmax(0,1fr); gap: 9px; }
+  .crew-captivity-slip > i { width: 41px; height: 44px; }
+  .crew-captivity-slip > div { grid-column: 2; justify-self: stretch; }
+}

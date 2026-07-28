@@ -653,6 +653,32 @@ function developmentFrontlinePreviewActive(): boolean {
   return new URLSearchParams(window.location.search).get("map-preview") === "frontline";
 }
 
+function developmentCaptivityPreviewActive(): boolean {
+  if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+  return new URLSearchParams(window.location.search).get("map-preview") === "captivity";
+}
+
+function developmentCaptivityPreviewGame(game: GameState): GameState {
+  if (!developmentCaptivityPreviewActive()) return game;
+  const preview = createInitialGame(1208, "linan-guild");
+  return {
+    ...preview,
+    day: 9,
+    phase: "map",
+    silver: 160,
+    selectedCityId: preview.currentCityId,
+    activeCrewIds: preview.activeCrewIds.filter((id) => id !== "lu-cang"),
+    convoy: { ...preview.convoy, guardsFit: Math.max(0, preview.convoy.guardsFit - 1) },
+    crew: preview.crew.map((member) => member.id === "lu-cang" ? {
+      ...member,
+      hp: 18,
+      injury: createCrewInjury("internal-trauma", 8),
+      captivity: { routeId: "linan-jiankang", captor: "采石矶水寨", sinceDay: 8, ransom: 52 },
+    } : member),
+    news: ["【队员被俘】鲁沧在行在江淮驿路断后失陷，被采石矶水寨扣走；须到临安府或建康府设法赎回。", ...preview.news].slice(0, 6),
+  };
+}
+
 function developmentRoutePreviewGame(game: GameState): GameState {
   if (!developmentRoutePreviewActive()) return game;
   const preview = createInitialGame(1208, "linan-guild");
@@ -1073,7 +1099,7 @@ function App() {
   const [savePulse, setSavePulse] = useState(false);
   const [previewRoutePlanId, setPreviewRoutePlanId] = useState<string | null>(null);
   const [journeyDispositionConfirm, setJourneyDispositionConfirm] = useState<JourneyDispositionId | null>(null);
-  const [cityWorkspace, setCityWorkspace] = useState<CityWorkspaceTab>(() => developmentRivalPreviewActive() ? "overview" : "contracts");
+  const [cityWorkspace, setCityWorkspace] = useState<CityWorkspaceTab>(() => developmentRivalPreviewActive() ? "overview" : developmentCaptivityPreviewActive() ? "crew" : "contracts");
   const [crewPreviewGame, setCrewPreviewGame] = useState<GameState | null>(developmentCrewPreviewGame);
   const [battlePreviewConfig] = useState<BattleConfig | null>(developmentBattleFixture);
   const sidePanelRef = useRef<HTMLElement>(null);
@@ -1091,7 +1117,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
+    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
     const handle = window.setTimeout(() => {
       saveGame(game).then(() => {
         setSavePulse(true);
@@ -1111,7 +1137,7 @@ function App() {
 
   useEffect(() => {
     if (!game) return;
-    setCityWorkspace(developmentRivalPreviewActive() ? "overview" : game.selectedCityId === game.currentCityId ? "contracts" : "overview");
+    setCityWorkspace(developmentRivalPreviewActive() ? "overview" : developmentCaptivityPreviewActive() ? "crew" : game.selectedCityId === game.currentCityId ? "contracts" : "overview");
   }, [game?.selectedCityId, game?.currentCityId]);
 
   useEffect(() => {
@@ -1193,12 +1219,12 @@ function App() {
   if (launch === "title" || !game) {
     return (
       <TitleScreen
-        hasSave={Boolean(savedGame) || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
+        hasSave={Boolean(savedGame) || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
         legacy={visibleLegacy}
         onNew={() => setLaunch("setup")}
         onContinue={() => {
           const source = savedGame ?? createInitialGame(1208, "linan-guild");
-          setGame(developmentRivalPreviewGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source)))))))))));
+          setGame(developmentRivalPreviewGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentCaptivityPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source))))))))))));
           setLaunch("game");
         }}
       />
@@ -1239,7 +1265,7 @@ function App() {
   const selectedPermitActive = hasActivePermit(game, selectedState.owner);
   const activeRoutes = game.phase === "planning" ? [] : game.journey?.plan.routeIds ?? [];
   const currentCity = cityById(game.currentCityId);
-  const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member));
+  const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member && !member.captivity));
   const journeyStance = travelStanceById(game.journey?.stance);
   const previewedRoutePlan = routePlans.find((plan) => plan.id === effectiveRoutePreviewId) ?? routePlans[0] ?? game.journey?.plan;
   const planningBorderFactions = previewedRoutePlan ? routeBorderFactions(game, previewedRoutePlan) : [];
@@ -1278,7 +1304,8 @@ function App() {
   const sideTradeOffer = tradeOffer(game);
   const activeTradeGood = game.journey?.tradeLot ? TRADE_GOODS[game.journey.tradeLot.goodId] : null;
   const activeMartialArt = martialArtById(game.martialArtId);
-  const injuredCrewCount = game.crew.filter((member) => member.injury).length;
+  const injuredCrewCount = game.crew.filter((member) => member.injury && !member.captivity).length;
+  const captiveCrewCount = game.crew.filter((member) => member.captivity).length;
   const isCurrentCity = selectedCity.id === game.currentCityId;
   const cityPriority = cityActionPriority(game);
   const preparationIssueCount = [
@@ -1360,7 +1387,7 @@ function App() {
                 </section>
                 <nav className="city-workspace-tabs" role="tablist" aria-label="城市事务分章">
                   {CITY_WORKSPACE_TABS.map((tab) => {
-                    const badge = tab.id === "overview" ? selectedEffect.seal : tab.id === "contracts" ? `${game.contracts.length}` : tab.id === "prepare" ? `${preparationIssueCount}` : injuredCrewCount ? `${injuredCrewCount}伤` : `${game.crew.length}`;
+                    const badge = tab.id === "overview" ? selectedEffect.seal : tab.id === "contracts" ? `${game.contracts.length}` : tab.id === "prepare" ? `${preparationIssueCount}` : captiveCrewCount ? `${captiveCrewCount}俘` : injuredCrewCount ? `${injuredCrewCount}伤` : `${game.crew.length}`;
                     return <button key={tab.id} id={`city-tab-${tab.id}`} role="tab" aria-selected={cityWorkspace === tab.id} aria-controls={`city-pane-${tab.id}`} className={cityWorkspace === tab.id ? "is-active" : ""} onClick={() => chooseCityWorkspace(tab.id)}>
                       <i>{tab.seal}</i><span><b>{tab.label}</b><small>{tab.note}</small></span><em>{badge}</em>
                     </button>;
@@ -1604,12 +1631,13 @@ function App() {
                       const injury = crewInjuryById(member.injury?.id);
                       const mastery = crewMasteryForRole(member.role, rank.level);
                       return (
-                        <div key={member.id} className={`${member.hp < 20 ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""}`} title={member.biography}>
+                        <div key={member.id} className={`${member.hp < 20 ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""} ${member.captivity ? "is-captive" : ""}`} title={member.biography}>
                           <span className="crew-role">{member.role}</span>
                           <b>{member.name}<em>{rank.label}</em></b>
                           <small>字{member.courtesy} · {member.specialty} · 阅历 {member.experience}</small>
                           {mastery && <mark className="crew-mastery-tag">{mastery.seal} · {mastery.name}</mark>}
                           {injury && member.injury && <mark className="crew-injury-tag">{injury.seal} · {injury.name} · 余 {member.injury.remainingDays} 日</mark>}
+                          {member.captivity && <mark className="crew-captivity-tag">俘 · {member.captivity.captor} · 第{member.captivity.sinceDay}日</mark>}
                           <i><em style={{ width: `${(member.hp / member.maxHp) * 100}%` }} /></i>
                           <strong>{member.hp}/{member.maxHp}</strong>
                         </div>
@@ -1716,11 +1744,12 @@ function App() {
               <p className="planning-note">路险与通断来自现有路报；旧闻可能已经失真。买报不耗时，遣趟子手可省银，但天下会再走一日，原定道路也可能在途中封闭。</p>
               <section className="crew-planning" aria-label="选择随行镖队">
                 <div className="crew-planning-heading"><span>点将 · 随行三人</span><b>{game.activeCrewIds.length}/3</b></div>
-                <p>职司会改变途中选择；重伤会拖慢赶路并削弱自动作战，气血低于二成者不能出镖。</p>
+                <p>职司会改变途中选择；重伤会拖慢赶路并削弱自动作战，气血低于二成或仍被扣押者不能出镖。</p>
                 <div className="crew-picks">
                   {game.crew.map((member) => {
                     const selected = game.activeCrewIds.includes(member.id);
                     const wounded = member.hp < 20;
+                    const captive = Boolean(member.captivity);
                     const injury = crewInjuryById(member.injury?.id);
                     const rank = crewRank(member.experience);
                     const mastery = crewMasteryForRole(member.role, rank.level);
@@ -1728,12 +1757,12 @@ function App() {
                     return (
                       <button
                         key={member.id}
-                        className={`${selected ? "is-selected" : ""} ${wounded ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""}`}
+                        className={`${selected ? "is-selected" : ""} ${wounded ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""} ${captive ? "is-captive" : ""}`}
                         aria-pressed={selected}
-                        disabled={wounded}
+                        disabled={wounded || captive}
                         onClick={() => setGame(toggleJourneyCrew(game, member.id))}
                       >
-                        <span>{member.role} · {rank.label}{bond ? ` · 主副${bond.label}` : ""}</span><b>{member.name}</b><small>{member.specialty} · 阅历 {member.experience}{mastery ? ` · 绝活「${mastery.name}」` : ""}{bond ? ` · 默契 ${game.leader.deputyBonds[member.id] ?? 0}` : ""}{injury ? ` · ${injury.name}` : ""}</small>
+                        <span>{captive ? "路上失陷 · 暂不可点将" : `${member.role} · ${rank.label}${bond ? ` · 主副${bond.label}` : ""}`}</span><b>{member.name}</b><small>{captive ? `被${member.captivity?.captor}扣押 · 前往人物页查看赎回路引` : `${member.specialty} · 阅历 ${member.experience}${mastery ? ` · 绝活「${mastery.name}」` : ""}${bond ? ` · 默契 ${game.leader.deputyBonds[member.id] ?? 0}` : ""}${injury ? ` · ${injury.name}` : ""}`}</small>
                         <i><em style={{ width: `${(member.hp / member.maxHp) * 100}%` }} /></i>
                         <strong>{member.hp}</strong>
                       </button>

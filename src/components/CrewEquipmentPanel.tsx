@@ -5,7 +5,8 @@ import { CREW_DISCIPLINE_LIST } from "../core/crewDisciplineContent";
 import { crewInjuryById } from "../core/injuryContent";
 import { crewMasteryForRole } from "../core/crewMasteryContent";
 import { BATTLE_FORMATION_IDS, FORMATION_PROFICIENCIES, formationProficiencyRank, normalizeFormationExperience } from "../core/formationProficiency";
-import { crewDisciplineChangeCost, crewTrainingCost, equipCrewItem, equipmentPurchaseCost, equipmentTuningCost, purchaseEquipment, setCrewDiscipline, trainCrew, tuneEquipment, unequipCrewItem } from "../core/game";
+import { crewDisciplineChangeCost, crewTrainingCost, equipCrewItem, equipmentPurchaseCost, equipmentTuningCost, purchaseEquipment, releaseCaptiveCrew, setCrewDiscipline, trainCrew, tuneEquipment, unequipCrewItem } from "../core/game";
+import { captivityReleaseOffer } from "../core/captivityContent";
 import type { EquipmentSlot, GameState } from "../core/types";
 
 export default function CrewEquipmentPanel({ game, onChange }: { game: GameState; onChange: (game: GameState) => void }) {
@@ -24,6 +25,8 @@ export default function CrewEquipmentPanel({ game, onChange }: { game: GameState
   const mastery = crewMasteryForRole(member.role, rank.level);
   const masteryPreview = crewMasteryForRole(member.role, 2)!;
   const formationExperience = normalizeFormationExperience(member.formationExperience);
+  const captivityOffer = captivityReleaseOffer(game, member.id);
+  const captive = Boolean(member.captivity);
 
   return (
     <section className="equipment-panel" aria-label="镖师养成与装备">
@@ -32,7 +35,7 @@ export default function CrewEquipmentPanel({ game, onChange }: { game: GameState
         <p>装备归镖局所有，可在出发前自由调配；器械铺还能精校同式谱样，使已配与后续购入的同式器械一并受益。</p>
       </div>
       <div className="equipment-crew-tabs" role="tablist" aria-label="选择镖师">
-        {game.crew.map((item) => <button key={item.id} className={item.id === member.id ? "is-active" : ""} onClick={() => setSelectedCrewId(item.id)}><i>{item.name.slice(0, 1)}</i><span><b>{item.name}</b><small>{item.role} · {crewRank(item.experience).label}</small></span></button>)}
+        {game.crew.map((item) => <button key={item.id} className={`${item.id === member.id ? "is-active" : ""} ${item.captivity ? "is-captive" : ""}`} onClick={() => setSelectedCrewId(item.id)}><i>{item.captivity ? "俘" : item.name.slice(0, 1)}</i><span><b>{item.name}</b><small>{item.captivity ? `失陷 · 第${item.captivity.sinceDay}日` : `${item.role} · ${crewRank(item.experience).label}`}</small></span></button>)}
       </div>
       <div className="equipment-progress">
         <div>
@@ -40,8 +43,13 @@ export default function CrewEquipmentPanel({ game, onChange }: { game: GameState
           <b>{rank.label}镖师 · 阅历 {member.experience}{rank.nextAt ? ` / ${rank.nextAt}` : " · 已臻名手"}</b>
           <span>基础战力加成 +{Math.round(rank.battleBonus * 100)}%　装备攻势 +{Math.round(stats.powerBonus * 100)}%　装备体魄 +{stats.maxHpBonus}</span>
         </div>
-        <button disabled={game.silver < trainingCost} onClick={() => onChange(trainCrew(game, member.id))}>{game.silver < trainingCost ? `尚缺 ${trainingCost - game.silver} 两` : `演武增阅历 · ${trainingCost} 两`}</button>
+        <button disabled={captive || game.silver < trainingCost} onClick={() => onChange(trainCrew(game, member.id))}>{captive ? "被俘期间无法演武" : game.silver < trainingCost ? `尚缺 ${trainingCost - game.silver} 两` : `演武增阅历 · ${trainingCost} 两`}</button>
       </div>
+      {member.captivity && <div className="crew-captivity-slip" aria-label={`${member.name}被俘处置`}>
+        <i>俘</i>
+        <span><small>第 {member.captivity.sinceDay} 日失陷 · {captivityOffer.routeName}</small><b>被{member.captivity.captor}扣在路上</b><em>须到{captivityOffer.endpointNames.join("或")}托行院递赎书；归队后仍保留原有伤势。</em></span>
+        <div><strong>{captivityOffer.discount > 0 ? `网点压价 · 省 ${member.captivity.ransom - captivityOffer.cost} 两` : captivityOffer.reason}</strong><button disabled={!captivityOffer.enabled} onClick={() => onChange(releaseCaptiveCrew(game, member.id))}>{captivityOffer.enabled ? `赎回 · ${captivityOffer.cost} 两／${captivityOffer.days} 日` : captivityOffer.reason}</button></div>
+      </div>}
       {injury && member.injury && <div className={`crew-injury-slip severity-${injury.severity}`}>
         <i>{injury.seal}</i>
         <span><small>名册验伤 · 尚需休养 {member.injury.remainingDays} 日</small><b>{injury.name}</b><em>{injury.description}</em></span>
@@ -78,7 +86,7 @@ export default function CrewEquipmentPanel({ game, onChange }: { game: GameState
         <div>
           {CREW_DISCIPLINE_LIST.map((discipline) => {
             const selected = member.disciplineId === discipline.id;
-            const disabled = rank.level < 1 || selected || game.silver < disciplineChangeCost;
+            const disabled = captive || rank.level < 1 || selected || game.silver < disciplineChangeCost;
             return <button key={discipline.id} className={selected ? "is-selected" : ""} disabled={disabled} onClick={() => onChange(setCrewDiscipline(game, member.id, discipline.id))}>
               <i>{discipline.seal}</i>
               <span><b>{discipline.name}</b><small>{discipline.motto}</small><em>{discipline.effect}</em></span>
@@ -96,7 +104,7 @@ export default function CrewEquipmentPanel({ game, onChange }: { game: GameState
           const current = currentId ? EQUIPMENT_LIST.find((item) => item.id === currentId) : undefined;
           const currentTuning = current ? equipmentTuningLevel(game.equipmentTuning[current.id]) : 0;
           return <article key={slot}>
-            <header><span>{SLOT_LABEL[slot]}</span>{current ? <button onClick={() => onChange(unequipCrewItem(game, member.id, slot))}>卸下</button> : <i>空位</i>}</header>
+            <header><span>{SLOT_LABEL[slot]}</span>{current ? <button disabled={captive} title={captive ? "器械随人失陷，赎回后方可调配" : undefined} onClick={() => onChange(unequipCrewItem(game, member.id, slot))}>{captive ? "随人扣留" : "卸下"}</button> : <i>空位</i>}</header>
             <div className={`equipped-item tuning-${currentTuning}`}>{current ? <><i>{current.seal}</i><span><b>{equipmentDisplayName(current, currentTuning)}</b><small>{current.description}</small><em>当前谱样 · {equipmentTuningGrade(currentTuning)} · {equipmentEffectSummary(current, currentTuning)}</em></span></> : <p>尚未配备{SLOT_LABEL[slot]}</p>}</div>
             <div className="equipment-shelf">
               {EQUIPMENT_LIST.filter((item) => item.slot === slot).map((item) => {
@@ -110,7 +118,7 @@ export default function CrewEquipmentPanel({ game, onChange }: { game: GameState
                 return <div key={item.id} className={`${isCurrent ? "is-equipped " : locked ? "is-locked " : ""}rarity-${item.rarity ?? "ordinary"} tuning-${tuningLevel}`} title={item.description}>
                   <i>{item.seal}</i><span><b>{item.name}{tuningLevel > 0 && <mark className="tuning-mark">{equipmentTuningGrade(tuningLevel)}</mark>}{item.source === "journey" && <mark title={item.origin}>胜阵</mark>}</b><small>{locked ? `需${["新手", "熟手", "老手", "名手"][item.requiredRank]}` : isCurrent ? "正在使用" : free > 0 ? `架上可用 ${free}` : item.source === "journey" ? `${item.origin ?? "护镖所得"} · 尚未获得` : `器械铺 ${price} 两`}</small><em className="item-effect">{equipmentEffectSummary(item, tuningLevel)}</em></span>
                   <div className="equipment-item-actions">
-                    {isCurrent ? <em>已配</em> : free > 0 ? <button disabled={locked} onClick={() => onChange(equipCrewItem(game, member.id, item.id))}>配备</button> : item.source === "journey" ? <button disabled>胜阵寻得</button> : <button disabled={locked || game.silver < price} onClick={() => onChange(purchaseEquipment(game, item.id))}>购入</button>}
+                    {isCurrent ? <em>已配</em> : free > 0 ? <button disabled={captive || locked} onClick={() => onChange(equipCrewItem(game, member.id, item.id))}>{captive ? "失陷中" : "配备"}</button> : item.source === "journey" ? <button disabled>胜阵寻得</button> : <button disabled={locked || game.silver < price} onClick={() => onChange(purchaseEquipment(game, item.id))}>购入</button>}
                     {owned && tuningLevel < MAX_EQUIPMENT_TUNING ? <button className="tuning-button" disabled={game.silver < tuningCost} onClick={() => onChange(tuneEquipment(game, item.id))}>{game.silver < tuningCost ? `缺 ${tuningCost - game.silver} 两` : `精校 ${tuningCost} 两`}</button> : owned && <strong>名匠谱样</strong>}
                   </div>
                 </div>;
