@@ -42,7 +42,7 @@ npm.cmd test
 - 跨境身份构筑：行前可亮旗正行，或备办商旅行票、香客行脚、行院军差；镖单性质、随员职司与籍贯、副货和已知底细共同形成适配度，边关会公开被识破概率，败露后身份作废并触发自动战斗
 - 地域副货经营：临安版刻、江南绫罗、淮盐、蜀茶、海舶香药、湖广粮米等按真实产地轮换；可在行前搭载，抵达后根据路程、城况与货损结算盈亏
 - 三种行程方略：按旗稳行、昼夜兼程与偃旗潜行，分别改变时日、耗粮、马力、盘查与战斗压力
-- 多段旅程会在中继城外进入驿亭、山店或渡亭，可整顿人马、补买路粮、核验下一程路报，并临时改换行策
+- 多段旅程会在中继城外进入驿亭、山店或渡亭，可整顿人马、补买路粮、核验下一程路报并临时改换行策；还可依据最新天气、封路、战线与边关重绘全部余程，比较新方案的时日、粮耗、马力和路险，而已经走过的路、伤势、货损、破封与胜战记录全部保留
 - 货镖、信镖、活镖、特镖四类委托与十六组内容模板；每单具有允损、保密、赔付、可疑征象和隐藏变数。特镖包含冷藏通风、归柩禁验、刻时交付与引势追踪四种公开规程，会真实改变天候货损、边关风险、战斗敌势与误期扣酬，并可由随员、车具、行策和路线选择抵消
 - 接镖前“账房试算”：镖榜会按当前车、马、人手、已知道路与沿途天气，为每张委托公开最可行脚程、期限余量、路粮、边关、路险和日均镖酬，并把真正适合现状的镖单排在前面；高酬但明显误期的委托不会伪装成好选择
 - 镖单调查：可花银访查，也可违约验货承担信用与酬金损失；知情后会解锁新的边关处置
@@ -104,7 +104,7 @@ npm.cmd test
 - `src/components/WorldMap.tsx`：React + SVG 南宋天下舆图
 - `src/App.tsx`：流程编排和 DOM 界面
 - `tests/`：可复现签数、出身、路线、城市易主、结算和战斗规则测试
-- 开发环境可直接在地址后加入 `?map-preview=routes` 安全预览三案舆图对比，加入 `?map-preview=frontline` 检查争城、围城、宋金行营与战线军情，或加入 `?event-preview=army`、`?event-preview=intrigue` 独立检查军阵拦路与镖物异动事件；加入 `?battle-preview=moments`、`?battle-preview=pursuit`、`?battle-preview=banner`、`?battle-preview=rescue`、`?battle-preview=client`、`?battle-preview=boarder`、`?battle-preview=defense`、`?battle-preview=rear`、`?battle-preview=repair`、`?battle-preview=volley`、`?battle-preview=growth`、`?battle-preview=leader`、`?battle-preview=equipment`、`?battle-preview=refinement` 或 `?battle-preview=coordination`，无须准备战斗存档即可独立试玩战阵记功签、追逐战、夺旗／士气战、倒地救援战、活镖护人战、攀车撬封战、阵令应招战、身后判定与自动脱围、断轴抢修战、集中齐射战、人物晋阶战、高危匪首战、器械自动技、谱样精校或阵形连携演示；加入 `?settlement-preview=equipment` 可安全预览胜阵获器结算，加入 `?crew-preview=discipline` 可独立预览战职、绝活、伤势、装备精校与演武界面；加入 `?legacy-preview=all` 可预览全部祖业传承的开局选择界面；加入 `?ending-preview=great-escort` 可用当前存档安全预览结局与谱牒收录卷
+- 开发环境可直接在地址后加入 `?map-preview=routes` 安全预览三案舆图对比，加入 `?map-preview=frontline` 检查争城、围城、宋金行营与战线军情，或加入 `?event-preview=army`、`?event-preview=intrigue`、`?event-preview=stopover` 独立检查军阵拦路、镖物异动与中途余程重绘；加入 `?battle-preview=moments`、`?battle-preview=pursuit`、`?battle-preview=banner`、`?battle-preview=rescue`、`?battle-preview=client`、`?battle-preview=boarder`、`?battle-preview=defense`、`?battle-preview=rear`、`?battle-preview=repair`、`?battle-preview=volley`、`?battle-preview=growth`、`?battle-preview=leader`、`?battle-preview=equipment`、`?battle-preview=refinement` 或 `?battle-preview=coordination`，无须准备战斗存档即可独立试玩战阵记功签、追逐战、夺旗／士气战、倒地救援战、活镖护人战、攀车撬封战、阵令应招战、身后判定与自动脱围、断轴抢修战、集中齐射战、人物晋阶战、高危匪首战、器械自动技、谱样精校或阵形连携演示；加入 `?settlement-preview=equipment` 可安全预览胜阵获器结算，加入 `?crew-preview=discipline` 可独立预览战职、绝活、伤势、装备精校与演武界面；加入 `?legacy-preview=all` 可预览全部祖业传承的开局选择界面；加入 `?ending-preview=great-escort` 可用当前存档安全预览结局与谱牒收录卷
 
 地图地理骨架采用 Natural Earth 公共领域矢量数据；历史地名体系参考 Harvard CHGIS，并借鉴南宋绍定、淳祐时期舆图的山川与州府并重表达。
 

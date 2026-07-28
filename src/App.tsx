@@ -36,6 +36,7 @@ import {
   routeInvestigationCost,
   routePlanInsight,
   routePlanTravelForecast,
+  replanJourneyAtStopover,
   segmentTravelForecast,
   serviceCost,
   setTravelCover,
@@ -43,6 +44,7 @@ import {
   setMartialArt,
   supplyPurchaseAmount,
   supportCurrentCity,
+  stopoverRouteOptions,
   tradeOffer,
   toggleJourneyCrew,
   convoyUpgradePurchaseCost,
@@ -725,6 +727,50 @@ function developmentContractEventPreviewGame(game: GameState): GameState {
   return event ? { ...travel, phase: "event", currentEvent: event } : game;
 }
 
+function developmentStopoverPreviewActive(): boolean {
+  if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+  return new URLSearchParams(window.location.search).get("event-preview") === "stopover";
+}
+
+function developmentStopoverPreviewGame(game: GameState): GameState {
+  if (!developmentStopoverPreviewActive()) return game;
+  const preview = createInitialGame(1208, "linan-guild");
+  const sourceContract = preview.contracts[0];
+  if (!sourceContract) return game;
+  const planning = acceptContract(preview, sourceContract.id);
+  if (!planning.journey) return game;
+  const travel = chooseRoute(planning, planning.journey.plan);
+  if (!travel.journey || travel.journey.plan.routeIds.length < 2) return game;
+  const firstRoute = routeById(travel.journey.plan.routeIds[0]);
+  const segmentIndex = 1;
+  const cityId = travel.journey.plan.cityIds[segmentIndex];
+  const nextRoute = routeById(travel.journey.plan.routeIds[segmentIndex]);
+  return {
+    ...travel,
+    day: travel.day + firstRoute.days,
+    phase: "event",
+    journey: {
+      ...travel.journey,
+      segmentIndex,
+      elapsedDays: firstRoute.days,
+      traveledRouteIds: [firstRoute.id],
+    },
+    currentEvent: {
+      id: "waystation-preview",
+      kind: "waystation",
+      eyebrow: "中途驿灯已上，旧路书却未必还作数",
+      title: `${cityById(cityId).name}城外，重看余程`,
+      description: `镖队刚走完${firstRoute.name}，下一程原定走${nextRoute.name}。天下旗号与沿途天候已经变化，正可在落脚前重新议路。`,
+      choices: [
+        { id: "stop-rest", label: "住驿整顿一日", hint: "耗 1 份补给；恢复马力、士气与随行伤势", tone: "safe" },
+        { id: "stop-stock", label: "托牙人补路粮", hint: "按此地行价添粮，不额外耗时", tone: "safe" },
+        { id: "stop-intel", label: "听下一程新路报", hint: "核实旗号、路况与匪情", tone: "safe" },
+        { id: "stop-press", label: "不落镖旗，继续赶路", hint: "不耗时、不花银；连日不整顿会轻损士气", tone: "risk" },
+      ],
+    },
+  };
+}
+
 function Gauge({ value, label, danger = false }: { value: number; label: string; danger?: boolean }) {
   return (
     <div className="gauge">
@@ -1017,7 +1063,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive()) return;
+    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
     const handle = window.setTimeout(() => {
       saveGame(game).then(() => {
         setSavePulse(true);
@@ -1115,12 +1161,12 @@ function App() {
   if (launch === "title" || !game) {
     return (
       <TitleScreen
-        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive()}
+        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
         legacy={visibleLegacy}
         onNew={() => setLaunch("setup")}
         onContinue={() => {
           const source = savedGame ?? createInitialGame(1208, "linan-guild");
-          setGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source)))))))));
+          setGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source))))))))));
           setLaunch("game");
         }}
       />
@@ -1172,6 +1218,7 @@ function App() {
   const stopoverRouteId = game.currentEvent?.kind === "waystation" && game.journey ? game.journey.plan.routeIds[game.journey.segmentIndex] : null;
   const stopoverForecast = stopoverRouteId ? segmentTravelForecast(game, stopoverRouteId) : null;
   const stopoverLandmark = stopoverRouteId ? primaryLandmarkForRoute(stopoverRouteId) : null;
+  const stopoverRoutes = game.currentEvent?.kind === "waystation" ? stopoverRouteOptions(game) : [];
   const currentOffice = game.offices[game.currentCityId];
   const officeOffer = officeActionOffer(game);
   const aidOffer = cityAidOffer(game);
@@ -1736,7 +1783,7 @@ function App() {
 
       {game.phase === "event" && game.currentEvent && (
         <div className="modal-layer event-layer" role="dialog" aria-modal="true" aria-labelledby="event-title">
-          <section className="event-card">
+          <section className={`event-card event-card-${game.currentEvent.kind}`}>
             <div className={`event-illustration event-${game.currentEvent.kind}`}><div className="event-moon" /><div className="event-silhouette" /><span>{game.currentEvent.kind === "waystation" ? <>歇<br />脚</> : game.currentEvent.kind === "handoff" ? <>交<br />割</> : game.currentEvent.kind === "caravan" ? <>同<br />道</> : game.currentEvent.kind === "intrigue" ? <>异<br />动</> : <>途<br />中</>}</span></div>
             <div className="event-copy">
               <span className="kicker">{game.currentEvent.eyebrow}</span>
@@ -1759,6 +1806,30 @@ function App() {
                     return <div className="stopover-landmark"><i>{kind.seal}</i><span><small>前路要点 · {kind.label}</small><b>{stopoverLandmark.name}</b><em>{stopoverLandmark.service}</em></span><p>{stopoverLandmark.description}</p></div>;
                   })()}
                   <div className="stopover-next"><span>下一程 · {routeById(stopoverRouteId).name}<small className={`weather-${stopoverForecast.weather.kind}`}>{stopoverForecast.weather.seal} · {stopoverForecast.weather.label} · {stopoverForecast.weatherEffect.note}</small></span><b>{stopoverForecast.days} 日 · 粮 {stopoverForecast.supplyCost} · 马力 {stopoverForecast.staminaCost}</b></div>
+                  {stopoverRoutes.length > 1 && (
+                    <section className="stopover-route-book" aria-label="按最新路报重绘剩余行程">
+                      <header><span><small>局势已变 · 可随时重绘</small><b>余程三案</b></span><em>只重算前路，不抹去既往损伤</em></header>
+                      <div>
+                        {stopoverRoutes.map((option, index) => {
+                          const intelLabel = option.insight.freshness === "fresh" ? "今报" : option.insight.freshness === "aging" ? "旧报" : "传闻";
+                          const deadlineLabel = option.deadlineMargin < 0 ? `预计误限 ${Math.abs(option.deadlineMargin)} 日` : option.deadlineMargin <= 2 ? `期限仅余 ${option.deadlineMargin} 日` : `期限余 ${option.deadlineMargin} 日`;
+                          return (
+                            <button
+                              key={`${option.plan.id}-${index}`}
+                              className={`stopover-route-choice ${option.current ? "is-current" : ""}`}
+                              disabled={option.current}
+                              aria-pressed={option.current}
+                              onClick={() => setGame(replanJourneyAtStopover(game, option.plan.id))}
+                            >
+                              <i>{option.current ? "原" : ["壹", "贰", "叁"][index - 1] ?? "改"}</i>
+                              <span><small>{option.current ? "当前余程" : `改走 · ${option.plan.label}`}</small><b>{option.pathLabel}</b><em>{intelLabel} · 路险 {option.travel.dangerLabel}{option.insight.borderSegments ? ` · ${option.insight.borderSegments} 处边关` : " · 同境"} · {option.travel.weatherSummary}</em></span>
+                              <strong><b>{option.travel.days} 日</b><small>粮 {option.travel.supplyCost} · 马力 -{option.travel.staminaCost}</small><em className={option.deadlineMargin < 0 ? "is-late" : option.deadlineMargin <= 2 ? "is-tight" : "is-safe"}>{deadlineLabel}</em></strong>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </section>
+                  )}
                   <div className="stopover-stances">
                     {TRAVEL_STANCE_LIST.map((stance) => (
                       <button key={stance.id} className={`stance-${stance.id} ${game.journey!.stance === stance.id ? "is-selected" : ""}`} aria-pressed={game.journey!.stance === stance.id} onClick={() => setGame(setTravelStance(game, stance.id))}>

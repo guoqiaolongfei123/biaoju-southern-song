@@ -60,6 +60,8 @@ import {
   setMartialArt,
   setCrewDiscipline,
   stopoverOffer,
+  stopoverRouteOptions,
+  replanJourneyAtStopover,
   supplyPurchaseAmount,
   supportCurrentCity,
   tradeOffer,
@@ -1327,6 +1329,43 @@ describe("镖局核心循环", () => {
     expect(stopover.journey?.stance).toBe("covert");
     expect(covert.days).toBeGreaterThan(steady.days);
     expect(covert.dangerModifier).toBe(-8);
+  });
+
+  it("驿亭会用最新路报重绘余程，并完整保留已经走过的路与押镖损伤", () => {
+    const stopover = reachOpeningStopover();
+    const options = stopoverRouteOptions(stopover);
+    expect(options.length).toBeGreaterThan(1);
+    expect(options[0].current).toBe(true);
+    expect(options[0].plan.cityIds[0]).toBe(stopover.journey?.plan.cityIds[stopover.journey!.segmentIndex]);
+    expect(options.every((option) => option.plan.cityIds.at(-1) === stopover.journey?.contract.to)).toBe(true);
+    expect(options.every((option) => option.travel.days > 0 && option.pathLabel.includes("—"))).toBe(true);
+
+    const alternate = options.find((option) => !option.current)!;
+    const scarred: GameState = {
+      ...stopover,
+      convoy: { ...stopover.convoy, cartHp: 71, cargoIntegrity: 83, sealIntact: false },
+      journey: { ...stopover.journey!, battleVictories: 2 },
+    };
+    const prefixRoutes = scarred.journey!.plan.routeIds.slice(0, scarred.journey!.segmentIndex);
+    const traveled = [...scarred.journey!.traveledRouteIds];
+    const replanned = replanJourneyAtStopover(scarred, alternate.plan.id);
+    expect(replanned.phase).toBe("event");
+    expect(replanned.currentEvent?.kind).toBe("waystation");
+    expect(replanned.journey?.segmentIndex).toBe(scarred.journey?.segmentIndex);
+    expect(replanned.journey?.plan.routeIds.slice(0, prefixRoutes.length)).toEqual(prefixRoutes);
+    expect(replanned.journey?.plan.routeIds.slice(replanned.journey.segmentIndex)).toEqual(alternate.plan.routeIds);
+    expect(replanned.journey?.traveledRouteIds).toEqual(traveled);
+    expect(replanned.journey?.battleVictories).toBe(2);
+    expect(replanned.convoy).toMatchObject({ cartHp: 71, cargoIntegrity: 83, sealIntact: false });
+    expect(replanned.news[0]).toContain("中途重绘");
+  });
+
+  it("中途改道只在驿亭开放，当前路线与无效路签不会改变旅程", () => {
+    const stopover = reachOpeningStopover();
+    const current = stopoverRouteOptions(stopover)[0];
+    expect(replanJourneyAtStopover(stopover, current.plan.id)).toBe(stopover);
+    expect(replanJourneyAtStopover(stopover, "missing-plan")).toBe(stopover);
+    expect(replanJourneyAtStopover({ ...stopover, phase: "travel", currentEvent: null }, current.plan.id).journey?.plan).toEqual(stopover.journey?.plan);
   });
 
   it("落脚点可补粮或核验下一程路报，费用会写回旅程", () => {

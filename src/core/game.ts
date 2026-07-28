@@ -1621,6 +1621,87 @@ export interface StopoverOffer {
   officeBacked: boolean;
 }
 
+export interface StopoverRouteOption {
+  plan: RoutePlan;
+  current: boolean;
+  travel: RoutePlanTravelForecastResult;
+  insight: RoutePlanInsight;
+  deadlineMargin: number;
+  pathLabel: string;
+}
+
+function remainingJourneyPlan(game: GameState): RoutePlan | null {
+  const journey = game.journey;
+  if (!journey || journey.segmentIndex < 0 || journey.segmentIndex >= journey.plan.routeIds.length) return null;
+  const routeIds = journey.plan.routeIds.slice(journey.segmentIndex);
+  const cityIds = journey.plan.cityIds.slice(journey.segmentIndex);
+  const routes = routeIds.map(routeById);
+  return {
+    id: routeIds.join("__"),
+    routeIds,
+    cityIds,
+    days: routes.reduce((total, route) => total + route.days, 0),
+    danger: Math.round(routes.reduce((total, route) => total + route.danger, 0) / Math.max(1, routes.length)),
+    label: "原定余程",
+    description: "沿出发时议定的路书继续前行。",
+  };
+}
+
+/**
+ * Rebuilds the remaining route choices from the current waystation using the
+ * latest known reports. The already-traveled prefix is deliberately excluded
+ * from the forecasts so a mid-journey decision compares only future cost.
+ */
+export function stopoverRouteOptions(game: GameState): StopoverRouteOption[] {
+  const journey = game.journey;
+  const current = remainingJourneyPlan(game);
+  if (!journey || !current || game.phase !== "event" || game.currentEvent?.kind !== "waystation") return [];
+  const from = current.cityIds[0];
+  const generated = generateRoutePlans(from, journey.contract.to, game);
+  const plans = [current, ...generated.filter((plan) => plan.routeIds.join("|") !== current.routeIds.join("|"))].slice(0, 3);
+  return plans.map((plan, index) => {
+    const normalized = index === 0 ? current : plan;
+    const travel = routePlanTravelForecast(game, normalized);
+    return {
+      plan: normalized,
+      current: index === 0,
+      travel,
+      insight: routePlanInsight(game, normalized),
+      deadlineMargin: journey.contract.deadline - (journey.elapsedDays + travel.days),
+      pathLabel: normalized.cityIds.map((cityId) => cityById(cityId).name).join("—"),
+    };
+  });
+}
+
+/** Replace only the untraveled suffix of a journey, preserving all history. */
+export function replanJourneyAtStopover(game: GameState, planId: string): GameState {
+  const journey = game.journey;
+  if (!journey || game.phase !== "event" || game.currentEvent?.kind !== "waystation") return game;
+  const option = stopoverRouteOptions(game).find((item) => item.plan.id === planId);
+  if (!option || option.current) return game;
+  const index = journey.segmentIndex;
+  const prefixRouteIds = journey.plan.routeIds.slice(0, index);
+  const prefixCityIds = journey.plan.cityIds.slice(0, index + 1);
+  const routeIds = [...prefixRouteIds, ...option.plan.routeIds];
+  const cityIds = [...prefixCityIds, ...option.plan.cityIds.slice(1)];
+  const routeDefinitions = routeIds.map(routeById);
+  const plan: RoutePlan = {
+    id: routeIds.join("__"),
+    routeIds,
+    cityIds,
+    days: routeDefinitions.reduce((total, route) => total + route.days, 0),
+    danger: Math.round(routeDefinitions.reduce((total, route) => total + route.danger, 0) / Math.max(1, routeDefinitions.length)),
+    label: `途中改道 · ${option.plan.label}`,
+    description: option.plan.description,
+  };
+  const replanned: GameState = {
+    ...game,
+    journey: { ...journey, plan },
+    news: [`【中途重绘】在${cityById(prefixCityIds.at(-1)!).name}改定余程，转走「${option.plan.label}」：${option.pathLabel}。`, ...game.news].slice(0, 6),
+  };
+  return { ...replanned, currentEvent: createStopoverEvent(replanned) };
+}
+
 export function stopoverOffer(game: GameState): StopoverOffer | null {
   const journey = game.journey;
   if (!journey || journey.segmentIndex <= 0 || journey.segmentIndex >= journey.plan.routeIds.length) return null;
