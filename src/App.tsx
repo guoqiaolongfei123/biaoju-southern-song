@@ -63,6 +63,7 @@ import { TRAVEL_COVER_LIST, routeBorderFactions, travelCoverAssessment, travelCo
 import { TRADE_GOODS } from "./core/tradeContent";
 import { MARTIAL_ART_LIST, martialArtById } from "./core/martialContent";
 import { specialHandlingForContract } from "./core/specialContractContent";
+import { contractIncidentEvent } from "./core/contractIncidentContent";
 import { LEGACY_BOON_LIST, createLegacyState, recordLegacyEnding } from "./core/legacyContent";
 import { CREW_DISCIPLINES } from "./core/crewDisciplineContent";
 import { CREW_MASTERIES, crewMasteryForRole } from "./core/crewMasteryContent";
@@ -691,6 +692,39 @@ function developmentArmyEventPreviewGame(game: GameState): GameState {
   return { ...staged, phase: "event", currentEvent: event };
 }
 
+function developmentContractEventPreviewActive(): boolean {
+  if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+  return new URLSearchParams(window.location.search).get("event-preview") === "intrigue";
+}
+
+function developmentContractEventPreviewGame(game: GameState): GameState {
+  if (!developmentContractEventPreviewActive()) return game;
+  const preview = createInitialGame(1208, "linan-guild");
+  const sourceContract = preview.contracts.find((contract) => contract.complication !== "none") ?? preview.contracts[0];
+  if (!sourceContract) return game;
+  const planning = acceptContract(preview, sourceContract.id);
+  if (!planning.journey) return game;
+  const travel = chooseRoute(planning, planning.journey.plan);
+  if (!travel.journey) return game;
+  const routeId = travel.journey.plan.routeIds[0];
+  const route = routeById(routeId);
+  const event = contractIncidentEvent({
+    day: travel.day,
+    routeId,
+    routeName: route.name,
+    contract: travel.journey.contract,
+    crewRoles: travel.journey.crewIds.flatMap((id) => {
+      const member = travel.crew.find((item) => item.id === id && item.hp > 0);
+      return member ? [member.role] : [];
+    }),
+    stance: travel.journey.stance,
+    upgrades: travel.convoy.upgrades,
+    supplies: travel.supplies,
+    silver: travel.silver,
+  });
+  return event ? { ...travel, phase: "event", currentEvent: event } : game;
+}
+
 function Gauge({ value, label, danger = false }: { value: number; label: string; danger?: boolean }) {
   return (
     <div className="gauge">
@@ -983,7 +1017,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive()) return;
+    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive()) return;
     const handle = window.setTimeout(() => {
       saveGame(game).then(() => {
         setSavePulse(true);
@@ -1081,12 +1115,12 @@ function App() {
   if (launch === "title" || !game) {
     return (
       <TitleScreen
-        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive()}
+        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive()}
         legacy={visibleLegacy}
         onNew={() => setLaunch("setup")}
         onContinue={() => {
           const source = savedGame ?? createInitialGame(1208, "linan-guild");
-          setGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source))))))));
+          setGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source)))))))));
           setLaunch("game");
         }}
       />
@@ -1703,7 +1737,7 @@ function App() {
       {game.phase === "event" && game.currentEvent && (
         <div className="modal-layer event-layer" role="dialog" aria-modal="true" aria-labelledby="event-title">
           <section className="event-card">
-            <div className={`event-illustration event-${game.currentEvent.kind}`}><div className="event-moon" /><div className="event-silhouette" /><span>{game.currentEvent.kind === "waystation" ? <>歇<br />脚</> : game.currentEvent.kind === "handoff" ? <>交<br />割</> : game.currentEvent.kind === "caravan" ? <>同<br />道</> : <>途<br />中</>}</span></div>
+            <div className={`event-illustration event-${game.currentEvent.kind}`}><div className="event-moon" /><div className="event-silhouette" /><span>{game.currentEvent.kind === "waystation" ? <>歇<br />脚</> : game.currentEvent.kind === "handoff" ? <>交<br />割</> : game.currentEvent.kind === "caravan" ? <>同<br />道</> : game.currentEvent.kind === "intrigue" ? <>异<br />动</> : <>途<br />中</>}</span></div>
             <div className="event-copy">
               <span className="kicker">{game.currentEvent.eyebrow}</span>
               <h2 id="event-title">{game.currentEvent.title}</h2>

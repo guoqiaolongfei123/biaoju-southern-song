@@ -64,6 +64,7 @@ import { deputyBondRank } from "./deputyBondContent";
 import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusContent";
 import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
+import { contractIncidentEvent } from "./contractIncidentContent";
 import {
   coldChainSegmentDamage,
   specialBattleDangerModifier,
@@ -1929,7 +1930,22 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
     };
   }
   const stanceRumor = stance.id === "covert" ? 0.1 : stance.id === "haste" ? -0.04 : 0;
-  const rumorThreshold = Math.min(0.9, breakdownThreshold + 0.18 + stanceRumor + (watchedByOffice ? 0.08 : 0) + mastery * 0.025);
+  const incident = contractIncidentEvent({
+    day: game.day,
+    routeId,
+    routeName: route.name,
+    contract: journey.contract,
+    crewRoles: journeyCrew(game).filter((member) => member.hp > 0).map((member) => member.role),
+    stance: stance.id,
+    upgrades: game.convoy.upgrades,
+    supplies: game.supplies,
+    silver: game.silver,
+  });
+  const intrigueThreshold = breakdownThreshold + (incident ? Math.max(0.08, 0.12 - mastery * 0.01) : 0);
+  if (incident && eventRoll.value < intrigueThreshold) {
+    return { rngState: eventRoll.state, event: incident };
+  }
+  const rumorThreshold = Math.min(0.9, intrigueThreshold + (incident ? 0.06 : 0.18) + stanceRumor + (watchedByOffice ? 0.08 : 0) + mastery * 0.025);
   if (eventRoll.value < rumorThreshold) {
     return {
       rngState: eventRoll.state,
@@ -2623,6 +2639,98 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
       return completeSegment(next);
     }
     return next;
+  }
+  if (kind === "intrigue") {
+    const picked = game.currentEvent.choices.find((item) => item.id === choiceId);
+    if (!picked || picked.disabled || !next.journey) return next;
+    const contract = next.journey.contract;
+    const routeId = next.journey.plan.routeIds[next.journey.segmentIndex];
+    const hasCarter = journeyHasRole(next, "车把式");
+    const hasMedic = journeyHasRole(next, "医师");
+    const hasScout = journeyHasRole(next, "趟子手");
+    const hasClerk = journeyHasRole(next, "账房");
+    let report = "";
+    if (choiceId === "intrigue-secure") {
+      const supplyCost = hasCarter || hasMedic ? 0 : 1;
+      if (next.supplies < supplyCost) return next;
+      next = {
+        ...next,
+        supplies: next.supplies - supplyCost,
+        convoy: { ...next.convoy, morale: Math.min(100, next.convoy.morale + 2) },
+      };
+      report = `${hasCarter ? "车把式卸下外架重垫受力处" : hasMedic ? "医师按物性重新包扎内匣" : "镖队停车拆架重垫"}，${contract.cargo}没有继续受损。`;
+    } else if (choiceId === "intrigue-open") {
+      if (!contract.inspectionAllowed) return next;
+      next = {
+        ...next,
+        journey: { ...next.journey, contract: { ...contract, secretKnown: true } },
+        convoy: { ...next.convoy, morale: Math.min(100, next.convoy.morale + 1) },
+      };
+      report = `依镖单验货条款开过内匣，查明「${contract.secret}」，重新固定后照样复封。`;
+    } else if (choiceId === "intrigue-press") {
+      const cargoDamage = Math.max(4, Math.round(10 * cargoDamageMultiplier(next.convoy)));
+      next = {
+        ...next,
+        convoy: { ...next.convoy, cargoIntegrity: Math.max(0, next.convoy.cargoIntegrity - cargoDamage), morale: Math.max(0, next.convoy.morale - 3) },
+      };
+      report = `镖队没有停车，箱中错位一路加重，${contract.cargo}完好度 -${cargoDamage}%。`;
+    } else if (choiceId === "intrigue-papers") {
+      if (!(hasClerk || contract.patron === "official" || contract.secretKnown)) return next;
+      next = { ...next, routeIntel: refreshedIntel(next, [routeId]), convoy: { ...next.convoy, morale: Math.min(100, next.convoy.morale + 3) } };
+      report = `${hasClerk ? "账房把委托公文与军牒逐栏相对" : contract.secretKnown ? "镖头说出只有承办人才知道的军需去处" : "官府委托的印信彼此相合"}，前军没有碰镖封便撤了征发签。`;
+    } else if (choiceId === "intrigue-provision") {
+      if (next.supplies < 2) return next;
+      const nextCityId = next.journey.plan.cityIds[next.journey.segmentIndex + 1];
+      const faction = next.cities[nextCityId].owner;
+      next = {
+        ...next,
+        supplies: next.supplies - 2,
+        relations: { ...next.relations, [faction]: clampFactionRelation((next.relations[faction] ?? 0) + 1) },
+      };
+      report = `另分两份路粮劳军，换得前军收回征发签；${FACTIONS[faction].name}往来 +1。`;
+    } else if (choiceId === "intrigue-shadow") {
+      if (next.supplies < 1 || !(hasScout || next.journey.stance === "covert" || hasConvoyUpgrade(next.convoy, "hidden-compartment") || contract.secretKnown)) return next;
+      next = {
+        ...next,
+        supplies: next.supplies - 1,
+        jianghuReputation: clampJianghuReputation(next.jianghuReputation + 1),
+        routeIntel: refreshedIntel(next, currentAndNextRouteIds(next)),
+        convoy: { ...next.convoy, morale: Math.min(100, next.convoy.morale + 3) },
+      };
+      report = `${hasScout ? "趟子手" : "前哨"}反绕一程，把追踪者带去岔路；沿途脚夫传开风云行识尾的本事。`;
+    } else if (choiceId === "intrigue-night") {
+      next = withWorldAdvance(next, 1);
+      next = {
+        ...next,
+        convoy: { ...next.convoy, horseStamina: Math.max(0, next.convoy.horseStamina - 10), morale: Math.max(0, next.convoy.morale - 2) },
+        journey: next.journey ? { ...next.journey, elapsedDays: next.day - next.journey.startedDay } : null,
+      };
+      report = "镖队弃了原定宿店，连夜换路；甩掉尾巴，却多耗一日与十成马力。";
+    } else if (choiceId === "intrigue-counterseal") {
+      if (!(hasClerk || contract.secretKnown)) return next;
+      next = {
+        ...next,
+        reputation: next.reputation + 1,
+        journey: { ...next.journey, contract: { ...contract, secretKnown: true } },
+      };
+      report = contract.complication === "contraband"
+        ? `${hasClerk ? "账房" : "镖头"}从印色与差牌次序拆穿假税吏，连货票都没递出去；信用 +1。`
+        : `${hasClerk ? "账房" : "镖头"}核出急札是同印后补，扣住送札人仍守原约；信用 +1。`;
+    } else if (choiceId === "intrigue-bribe") {
+      if (next.silver < 10) return next;
+      next = { ...next, silver: next.silver - 10, jianghuReputation: clampJianghuReputation(next.jianghuReputation - 1) };
+      report = "十两茶钱递过验货棚，镖物没有受查；但向假差买路的风声也跟着传开。";
+    } else if (choiceId === "intrigue-refuse") {
+      next = withWorldAdvance(next, 1);
+      next = {
+        ...next,
+        convoy: { ...next.convoy, morale: Math.max(0, next.convoy.morale - 2) },
+        journey: next.journey ? { ...next.journey, elapsedDays: next.day - next.journey.startedDay } : null,
+      };
+      report = "镖队扣下送札人查了一日，确认后方另有接应；虽误脚程，原约与镖封都没改。";
+    } else return next;
+    next = { ...next, news: [`【镖物异动】${report}`, ...next.news].slice(0, 6) };
+    return completeSegment(next);
   }
   if (kind === "border" && choiceId === "cover") {
     const targetCityId = next.journey!.plan.cityIds[next.journey!.segmentIndex + 1];

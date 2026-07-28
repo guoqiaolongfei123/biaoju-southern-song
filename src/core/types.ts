@@ -248,7 +248,7 @@ export interface EventChoice {
 
 export interface TravelEvent {
   id: string;
-  kind: "border" | "bandits" | "storm" | "refugees" | "breakdown" | "rumor" | "roadblock" | "waystation" | "handoff" | "caravan";
+  kind: "border" | "bandits" | "storm" | "refugees" | "breakdown" | "rumor" | "roadblock" | "waystation" | "handoff" | "caravan" | "intrigue";
   actorId?: string;
   eyebrow: string;
   title: string;
