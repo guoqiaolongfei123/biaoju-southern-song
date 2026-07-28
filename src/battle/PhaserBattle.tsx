@@ -36,6 +36,7 @@ import {
   battleObjectiveMode,
   battleProgress,
   battleRepairAvailable,
+  battleRearThreatStatus,
   battleVolleyAvailable,
   battleResult,
   battleThreatNotice,
@@ -91,6 +92,13 @@ interface BattleHud {
   coreComboCooldown: number;
   coreCounterCount: number;
   coreCounterActive: boolean;
+  rearThreatCount: number;
+  rearSurrounded: boolean;
+  rearDefenseActive: boolean;
+  rearDefenseOutcome: BattleSimulation["rearDefenseOutcome"];
+  rearTurnCount: number;
+  rearGuardCount: number;
+  rearHitCount: number;
   defenseCounters: number;
   defenseBreaches: number;
   defenseOutcome: BattleSimulation["defenseOutcome"];
@@ -134,6 +142,7 @@ const GUARD_SUPPORT_LABEL: Record<NonNullable<BattleSimulation["guards"][number]
   coordination: "合击",
   "core-combo": "主副合击",
   "core-counter": "主副截锋",
+  "rear-guard": "护背",
 };
 
 const GUARD_DISCIPLINE_BADGE = {
@@ -447,6 +456,7 @@ class EscortScene extends Phaser.Scene {
       this.lastHudAt = this.time.now;
       const incomingIntents = battleAttackIntents(this.simulation);
       const incomingIntent = incomingIntents[0] ?? null;
+      const rearStatus = battleRearThreatStatus(this.simulation);
       const pacing = battlePacingState(this.orders.pace, incomingIntent, this.orders.paused);
       this.reportHud({
         playerHp: Math.round(this.simulation.player.hp),
@@ -482,6 +492,13 @@ class EscortScene extends Phaser.Scene {
         coreComboCooldown: this.simulation.coreComboCooldown,
         coreCounterCount: this.simulation.coreCounterCount,
         coreCounterActive: this.simulation.coreCounterPulse > 0,
+        rearThreatCount: rearStatus.rearEnemyIds.length,
+        rearSurrounded: rearStatus.surrounded || this.simulation.rearSurroundedPulse > 0,
+        rearDefenseActive: this.simulation.rearDefensePulse > 0,
+        rearDefenseOutcome: this.simulation.rearDefenseOutcome,
+        rearTurnCount: this.simulation.rearTurnCount,
+        rearGuardCount: this.simulation.rearGuardCount,
+        rearHitCount: this.simulation.rearHitCount,
         defenseCounters: this.simulation.defenseCounters,
         defenseBreaches: this.simulation.defenseBreaches,
         defenseOutcome: this.simulation.defenseOutcome,
@@ -1464,6 +1481,19 @@ class EscortScene extends Phaser.Scene {
         continue;
       }
       if (cue.kind === "leader-challenge") continue;
+      if (cue.kind === "rear-turn") {
+        const turn = this.add.graphics().setPosition(cue.fromX, cue.fromY - 6).setDepth(43);
+        turn.lineStyle(5, 0x78ad8a, .86).beginPath().arc(0, 0, 42, -.35, Math.PI + .65).strokePath();
+        turn.fillStyle(0xd9c77f, .92).fillTriangle(-41, 3, -30, -5, -29, 9);
+        this.tweens.add({ targets: turn, scale: 1.24, alpha: 0, duration: 520, ease: "Quad.easeOut", onComplete: () => turn.destroy() });
+        continue;
+      }
+      if (cue.kind === "rear-guard") {
+        this.showEquipmentCallout(cue, "#e1c57b");
+        this.showImpact(cue.toX, cue.toY - 16, 0xd8b566, true);
+        this.showDamage(cue, "#f0d18b");
+        continue;
+      }
       if (cue.kind === "arrow" || cue.kind === "bolt" || cue.kind === "torch") {
         this.playProjectile(cue);
         continue;
@@ -1513,13 +1543,13 @@ class EscortScene extends Phaser.Scene {
         continue;
       }
       const technique = cue.kind === "technique";
-      const color = technique ? 0xf0c66d : cue.kind === "enemy-strike" ? 0xc96d58 : 0xe1c47d;
+      const color = technique ? 0xf0c66d : cue.kind === "enemy-strike" || cue.kind === "rear-hit" ? 0xc96d58 : 0xe1c47d;
       const slash = this.add.graphics().setPosition(cue.toX, cue.toY - 16).setDepth(43);
       slash.lineStyle(technique ? 7 : 4, color, technique ? .88 : .74);
       slash.beginPath().arc(0, 0, technique ? 34 : 22, -.95, .72).strokePath();
       this.tweens.add({ targets: slash, scale: technique ? 1.45 : 1.2, alpha: 0, duration: technique ? 360 : 210, ease: "Quad.easeOut", onComplete: () => slash.destroy() });
       this.showImpact(cue.toX, cue.toY - 16, color, technique);
-      this.showDamage(cue, technique ? "#f3cf76" : cue.kind === "enemy-strike" ? "#e18975" : "#e7d09d");
+      this.showDamage(cue, technique ? "#f3cf76" : cue.kind === "enemy-strike" || cue.kind === "rear-hit" ? "#e18975" : "#e7d09d");
     }
   }
 
@@ -1736,6 +1766,25 @@ class EscortScene extends Phaser.Scene {
     }
     this.drawPendingOrderRelay();
     this.drawAttackIntents();
+    const rearStatus = battleRearThreatStatus(state);
+    const rearResponseTarget = state.rearResponseTargetId ? state.enemies.find((enemy) => enemy.id === state.rearResponseTargetId && enemy.hp > 0) : undefined;
+    const rearMarkedEnemies = state.enemies.filter((enemy) => rearStatus.rearEnemyIds.includes(enemy.id));
+    if (rearMarkedEnemies.length > 0 || rearResponseTarget || rearStatus.surrounded || state.rearSurroundedPulse > 0) {
+      const rearColor = state.rearDefenseOutcome === "hit" && state.rearDefensePulse > 0 ? 0xd05243 : state.rearDefenseOutcome === "guard" && state.rearDefensePulse > 0 ? 0xd5ad60 : 0x76ad88;
+      const pulse = this.reducedMotion ? .62 : .5 + Math.sin(state.elapsed * 14) * .13;
+      const marked = rearMarkedEnemies.length > 0 ? rearMarkedEnemies : rearResponseTarget ? [rearResponseTarget] : [];
+      for (const enemy of marked) {
+        const angle = Math.atan2(enemy.y - state.player.y, enemy.x - state.player.x);
+        ground.lineStyle(3, rearColor, pulse).beginPath().arc(state.player.x, state.player.y + 5, 48, angle - .42, angle + .42).strokePath();
+        ground.lineStyle(1, 0xedd79b, pulse * .7).lineBetween(state.player.x + Math.cos(angle) * 50, state.player.y + 5 + Math.sin(angle) * 50, enemy.x - Math.cos(angle) * 24, enemy.y - Math.sin(angle) * 24);
+      }
+      const surrounded = rearStatus.surrounded || state.rearSurroundedPulse > 0;
+      g.lineStyle(surrounded ? 4 : 2, rearColor, pulse).strokeCircle(state.player.x, state.player.y + 4, surrounded ? 61 : 53);
+      if (surrounded && (rearStatus.escapeX || rearStatus.escapeY)) {
+        ground.lineStyle(5, 0x82b291, pulse).lineBetween(state.player.x, state.player.y + 8, state.player.x + rearStatus.escapeX * 58, state.player.y + 8 + rearStatus.escapeY * 58);
+        ground.fillStyle(0xd8c281, pulse).fillCircle(state.player.x + rearStatus.escapeX * 61, state.player.y + 8 + rearStatus.escapeY * 61, 5);
+      }
+    }
     ground.fillStyle(0x0d0c09, .36).fillEllipse(state.cart.x + 46, state.cart.y + 48, 205, 38);
     ground.fillStyle(0x0d0c09, .32).fillEllipse(state.player.x, state.player.y + 24, 62, 18);
     if (state.client) ground.fillStyle(0x0d0c09, state.client.hp > 0 ? .28 : .16).fillEllipse(state.client.x, state.client.y + 22, 48, 14);
@@ -2019,6 +2068,13 @@ export default function PhaserBattle({ config, onComplete }: PhaserBattleProps) 
     coreComboCooldown: 0,
     coreCounterCount: 0,
     coreCounterActive: false,
+    rearThreatCount: 0,
+    rearSurrounded: false,
+    rearDefenseActive: false,
+    rearDefenseOutcome: null,
+    rearTurnCount: 0,
+    rearGuardCount: 0,
+    rearHitCount: 0,
     defenseCounters: 0,
     defenseBreaches: 0,
     defenseOutcome: null,
@@ -2221,6 +2277,9 @@ export default function PhaserBattle({ config, onComplete }: PhaserBattleProps) 
           </span>}
           {started && <span className={`battle-coordination-stat${hud.coordinationActive ? " is-active" : ""}`}>连携 <b>{hud.coordinationCount}</b></span>}
           {started && <span className={`battle-defense-stat${hud.defenseActive && hud.defenseOutcome ? ` is-${hud.defenseOutcome}` : ""}`}>应招 <b>{hud.defenseCounters}妥 · {hud.defenseBreaches}失</b></span>}
+          {started && <span className={`battle-rear-stat${hud.rearDefenseActive && hud.rearDefenseOutcome ? ` is-${hud.rearDefenseOutcome}` : ""}${hud.rearSurrounded ? " is-surrounded" : ""}`} aria-label={`身后判定：自动回身 ${hud.rearTurnCount} 次，副镖头护背 ${hud.rearGuardCount} 次，背袭命中 ${hud.rearHitCount} 次`}>
+            护背 <b>{hud.rearSurrounded ? "脱围" : hud.rearThreatCount > 0 ? `警 ${hud.rearThreatCount}` : hud.rearDefenseOutcome === "guard" && hud.rearDefenseActive ? "截住" : "稳"}</b><small>{hud.rearTurnCount}回 · {hud.rearGuardCount}截{hud.rearHitCount > 0 ? ` · ${hud.rearHitCount}中` : ""}</small>
+          </span>}
           {hud.remainingSeconds !== null && <span className="battle-timer">{objectiveMode === "holdout" ? "援至" : objectiveMode === "pursuit" ? "脱逃" : "闭门"} <b>{hud.remainingSeconds}息</b></span>}
         </div>
       </div>
@@ -2262,7 +2321,7 @@ export default function PhaserBattle({ config, onComplete }: PhaserBattleProps) 
           <div>
             <span className="kicker">{sceneLabel} · 等你发令</span>
             <h3>{readyTitle}</h3>
-            <p>{readyDescription} {(config.cartHealthRatio ?? 1) < .84 ? `镖车当前只有 ${Math.round((config.cartHealthRatio ?? 1) * 100)} 分车况，开战后可下「停阵抢修」令；车把式会自动选位动手，余众则继续迎敌。` : config.enemyLeaderName && config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? `持近阵强弩的队员会等待你的「集中齐射」令，再自动锁定${config.enemyLeaderName}或成排弓手、同步攒弩发射。` : config.escortClient ? `「${config.escortClient.name}」会作为真实单位随车行动；劫人者可能绕过正面直取活镖，危急时可下「护住活镖」令。` : !config.objectiveNote && config.danger >= 54 && objectiveMode !== "pursuit" ? "高危匪众可能派夺旗手直取行旗；失旗会动摇士气，开路追旗与围车护旗将由你的阵令决定。" : ""} 镖头与随行镖师会自行寻敌、出招与护车；你只需临阵调整护卫重点与推进节奏。敌方危险起手命中车、马或活镖时，会以「应／破」明确结算阵令是否对症。绝技「{martialArt.technique}」默认在合适时机自动施展。</p>
+            <p>{readyDescription} {(config.cartHealthRatio ?? 1) < .84 ? `镖车当前只有 ${Math.round((config.cartHealthRatio ?? 1) * 100)} 分车况，开战后可下「停阵抢修」令；车把式会自动选位动手，余众则继续迎敌。` : config.enemyLeaderName && config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? `持近阵强弩的队员会等待你的「集中齐射」令，再自动锁定${config.enemyLeaderName}或成排弓手、同步攒弩发射。` : config.escortClient ? `「${config.escortClient.name}」会作为真实单位随车行动；劫人者可能绕过正面直取活镖，危急时可下「护住活镖」令。` : !config.objectiveNote && config.danger >= 54 && objectiveMode !== "pursuit" ? "高危匪众可能派夺旗手直取行旗；失旗会动摇士气，开路追旗与围车护旗将由你的阵令决定。" : ""} 镖头与随行镖师会自行寻敌、出招与护车；身后近敌会触发自动回身，三面受敌时会边迎敌边侧退脱围，副镖头在近侧则自动补住背袭路线。你只需临阵调整护卫重点与推进节奏。敌方危险起手命中车、马或活镖时，会以「应／破」明确结算阵令是否对症。绝技「{martialArt.technique}」默认在合适时机自动施展。</p>
             {config.escortClient && <div className="battle-client-slip"><img src={BATTLE_ASSETS.client.path} alt="活镖旅客" /><span><small>此行活镖</small><b>{config.escortClient.name}</b><em>人身气血会带入余程与最终交割</em></span></div>}
             {bossBattle && <div className="battle-chief-slip"><i>首</i><span><small>敌方首领 · 两阶段自动行为</small><b>{config.enemyLeaderName}</b><em>先在后阵号令群匪；局势不利时会弃旗逼战、直取总镖头。重招将提前显形，「强行开路」可自动迎锋破势。</em></span><strong>号令 → 逼战</strong></div>}
             <div className={`battle-martial-slip martial-${martialArt.id}${config.leader?.injuryName ? " is-injured" : ""}`}><i>{martialArt.seal}</i><span><small>{config.leader?.name ?? "总镖头"} · {crewRank(config.leader?.experience ?? 0).label} · {martialRank.label} · 武历 {martialExperience} · {martialArt.school}{config.leader?.injuryName ? <mark>带伤 · {config.leader.injuryName}</mark> : null}</small><b>{martialArt.name}</b><em>{martialProficiencyEffectSummary(martialArt.id, martialExperience)}{config.leader?.equipmentNames?.length ? ` · 随身 ${config.leader.equipmentNames.join("、")}` : ""}</em></span></div>
@@ -2276,7 +2335,7 @@ export default function PhaserBattle({ config, onComplete }: PhaserBattleProps) 
               </button>)}</div>
             </div>
             <div className="battle-ready-crew">{config.guards.map((guard) => <span key={guard.id}><b>{guard.name}</b>{guard.role}{guard.disciplineName && <em>{guard.disciplineName}</em>}{guard.masteryName && <em className="is-mastery">绝活 · {guard.masteryName}</em>}{guard.injuryName && <mark>{guard.injuryName}</mark>}<small>{crewRank(guard.experience ?? 0).label} · 阅历 {guard.experience ?? 0} · {guard.equipmentNames?.length ? guard.equipmentNames.join(" · ") : "未配器械"}</small></span>)}</div>
-            <div className="ready-controls"><span>预案 <b>{selectedDoctrine.title}</b></span><span>临阵 <b>只下阵令</b></span><span>连携 <b>同敌自动合击</b></span><span>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "弩令" : (config.cartHealthRatio ?? 1) < .84 ? "抢修" : "救援"} <b>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "齐射取准" : (config.cartHealthRatio ?? 1) < .84 ? config.spareAxle ? "备用轴在车" : "就地紧榫" : "倒地可救"}</b></span><span>绝技 <b>自动择机</b></span></div>
+            <div className="ready-controls"><span>预案 <b>{selectedDoctrine.title}</b></span><span>临阵 <b>只下阵令</b></span><span>护背 <b>自动回身脱围</b></span><span>连携 <b>同敌自动合击</b></span><span>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "弩令" : (config.cartHealthRatio ?? 1) < .84 ? "抢修" : "救援"} <b>{config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "齐射取准" : (config.cartHealthRatio ?? 1) < .84 ? config.spareAxle ? "备用轴在车" : "就地紧榫" : "倒地可救"}</b></span><span>绝技 <b>自动择机</b></span></div>
             <div className="battle-relay-readiness"><i>令</i><span><small>本队阵令传达</small><b>约 {commandRelaySeconds.toFixed(1)} 息送达</b><em>{relayTalentLabel} · 士气越稳响应越快</em></span></div>
             <button className="primary-button" onClick={() => setStarted(true)}>按「{selectedDoctrine.title}」迎敌</button>
           </div>
@@ -2392,7 +2451,7 @@ export default function PhaserBattle({ config, onComplete }: PhaserBattleProps) 
       )}
       <div className="battle-footer">
         <div className="battle-message">{debrief?.title ?? hud.message}</div>
-        <div className="battle-controls">{result ? "伤损、抢修、人身、士气、阵令应对与旗号结果将在收阵后写回行程" : `全队自动作战 · ${selectedDoctrine.title}预案 · ${(config.cartHealthRatio ?? 1) < .84 ? "车况危急时可下抢修令" : config.enemyLeaderName && config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "高危目标入弩程可下齐射令" : config.escortClient ? "危急时可下护人令" : "倒地时可下救人令"} · 「应／破」记录危险起手是否接住`}</div>
+        <div className="battle-controls">{result ? "伤损、抢修、人身、士气、阵令应对与旗号结果将在收阵后写回行程" : `全队自动作战 · 自动回身与脱围 · ${selectedDoctrine.title}预案 · ${(config.cartHealthRatio ?? 1) < .84 ? "车况危急时可下抢修令" : config.enemyLeaderName && config.guards.some((guard) => guard.equipmentIds?.some((id) => equipmentHasBattleTrait(id, "crossbow"))) ? "高危目标入弩程可下齐射令" : config.escortClient ? "危急时可下护人令" : "倒地时可下救人令"} · 「应／破」记录危险起手是否接住`}</div>
       </div>
     </section>
   );

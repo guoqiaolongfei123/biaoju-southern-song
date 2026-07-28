@@ -129,6 +129,30 @@ export function battleMomentFromCue(cue: BattleCue, config: BattleConfig, format
       detail: `直取${config.leader?.name ?? "总镖头"} · 强行开路可自动迎锋化解`,
     };
   }
+  if (cue.kind === "rear-turn") return {
+    id: cue.id,
+    tone: "jade",
+    seal: "回",
+    eyebrow: `${config.leader?.name ?? "总镖头"} · 身后判定自动响应`,
+    title: cue.label ?? "听风回身",
+    detail: "锁定背后近敌 · 保持正面迎敌并准备侧退脱围",
+  };
+  if (cue.kind === "rear-guard") return {
+    id: cue.id,
+    tone: "gold",
+    seal: "护",
+    eyebrow: `${actor} · 副镖头护背`,
+    title: cue.label ?? "副手封背",
+    detail: `插入背袭路线并反打 · 破敌 ${roundedAmount(cue)}`,
+  };
+  if (cue.kind === "rear-hit") return {
+    id: cue.id,
+    tone: "danger",
+    seal: "背",
+    eyebrow: `${config.leader?.name ?? "总镖头"} · 背袭判定`,
+    title: cue.label ?? "背袭得手",
+    detail: `承伤 ${roundedAmount(cue)} · 已自动回身并脱离夹击方向`,
+  };
   if (cue.kind === "counter" || cue.kind === "breach") {
     const countered = cue.kind === "counter";
     const strategyContext = activeStrategy ? `阵令「${STRATEGY_PRESENTATION[activeStrategy].label}」${countered ? "应招" : "失应"} · ` : "";

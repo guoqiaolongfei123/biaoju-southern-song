@@ -101,8 +101,10 @@ export type BattleFormation = BattleFormationId;
 export type BattleStrategy = "balanced" | "breakthrough" | "guard-cart" | "guard-horses" | "guard-client" | "focus-fire" | "repair-cart" | "rescue";
 export type EnemyLeaderPhase = "absent" | "command" | "challenge" | "defeated";
 export type TechniquePolicy = "auto" | "reserve";
-export type GuardSupportKind = "crossbow" | "volley" | "medicine" | "horse-hook" | "wheel-hook" | "shield" | "mastery" | "rescue" | "repair" | "coordination" | "core-combo" | "core-counter";
-export type BattleCueKind = "player-strike" | "guard-strike" | "coordination" | "core-combo" | "enemy-strike" | "arrow" | "bolt" | "volley" | "hook" | "torch" | "technique" | "heal" | "revive" | "rescue" | "repair" | "mastery" | "brace" | "counter" | "breach" | "leader-challenge" | "banner-grab" | "banner-recover" | "banner-lost";
+export type GuardSupportKind = "crossbow" | "volley" | "medicine" | "horse-hook" | "wheel-hook" | "shield" | "mastery" | "rescue" | "repair" | "coordination" | "core-combo" | "core-counter" | "rear-guard";
+export type BattleCueKind = "player-strike" | "guard-strike" | "coordination" | "core-combo" | "enemy-strike" | "rear-turn" | "rear-guard" | "rear-hit" | "arrow" | "bolt" | "volley" | "hook" | "torch" | "technique" | "heal" | "revive" | "rescue" | "repair" | "mastery" | "brace" | "counter" | "breach" | "leader-challenge" | "banner-grab" | "banner-recover" | "banner-lost";
+export type AttackApproach = "front" | "flank" | "rear";
+export type RearDefenseOutcome = "turn" | "guard" | "hit";
 
 export interface BattleCue {
   id: number;
@@ -129,6 +131,15 @@ export interface BattleThreatNotice {
   tone: "steady" | "horse" | "cart" | "ranged" | "command";
   label: string;
   advice: string;
+}
+
+export interface BattleRearThreatStatus {
+  nearbyEnemyCount: number;
+  rearEnemyIds: string[];
+  primaryEnemyId: string | null;
+  surrounded: boolean;
+  escapeX: number;
+  escapeY: number;
 }
 
 export interface BattleAttackIntent {
@@ -217,6 +228,16 @@ export interface BattleSimulation {
   coreComboCount: number;
   coreCounterPulse: number;
   coreCounterCount: number;
+  rearThreatPulse: number;
+  rearSurroundedPulse: number;
+  rearDefensePulse: number;
+  rearDefenseOutcome: RearDefenseOutcome | null;
+  rearAwarenessCooldown: number;
+  rearResponseTargetId: string | null;
+  rearResponseSeconds: number;
+  rearTurnCount: number;
+  rearGuardCount: number;
+  rearHitCount: number;
   defenseCounters: number;
   defenseBreaches: number;
   defensePulse: number;
@@ -239,10 +260,73 @@ export interface BattleInput {
   retreat: boolean;
   formation?: BattleFormation;
   strategy?: BattleStrategy;
+  targetEnemyId?: string;
 }
 
 function distance(a: Vec2, b: Vec2): number {
   return Math.hypot(a.x - b.x, a.y - b.y);
+}
+
+export function attackApproach(target: Combatant, attacker: Vec2): AttackApproach {
+  const dx = attacker.x - target.x;
+  const dy = attacker.y - target.y;
+  const length = Math.hypot(dx, dy) || 1;
+  const facingLength = Math.hypot(target.facingX, target.facingY) || 1;
+  const dot = (dx * target.facingX + dy * target.facingY) / (length * facingLength);
+  if (dot <= -.42) return "rear";
+  if (dot < .42) return "flank";
+  return "front";
+}
+
+function rearThreatCandidates(state: BattleSimulation, fighter: Combatant, radius: number): Enemy[] {
+  return state.enemies
+    .filter((enemy) => enemy.hp > 0 && enemy.type !== "archer" && enemy.type !== "banner" && distance(fighter, enemy) <= radius)
+    .sort((a, b) => distance(fighter, a) - distance(fighter, b));
+}
+
+export function battleRearThreatStatus(state: BattleSimulation, fighter: Combatant = state.player): BattleRearThreatStatus {
+  const nearby = rearThreatCandidates(state, fighter, 122);
+  const rear = rearThreatCandidates(state, fighter, 154).filter((enemy) => attackApproach(fighter, enemy) === "rear");
+  const sectors = new Set<string>();
+  for (const enemy of nearby) {
+    const dx = enemy.x - fighter.x;
+    const dy = enemy.y - fighter.y;
+    const length = Math.hypot(dx, dy) || 1;
+    const facingLength = Math.hypot(fighter.facingX, fighter.facingY) || 1;
+    const dot = (dx * fighter.facingX + dy * fighter.facingY) / (length * facingLength);
+    const cross = (fighter.facingX * dy - fighter.facingY * dx) / (length * facingLength);
+    sectors.add(dot > .42 ? "front" : dot < -.42 ? "rear" : cross >= 0 ? "left" : "right");
+  }
+  const surrounded = nearby.length >= 3 && (sectors.size >= 3 || (sectors.has("front") && sectors.has("rear")));
+  let escapeX = 0;
+  let escapeY = 0;
+  if (surrounded) {
+    let bestScore = Number.NEGATIVE_INFINITY;
+    for (let index = 0; index < 12; index += 1) {
+      const angle = index * Math.PI * 2 / 12;
+      const vx = Math.cos(angle);
+      const vy = Math.sin(angle);
+      const projected = { x: fighter.x + vx * 86, y: fighter.y + vy * 86 };
+      const nearestDistance = Math.min(...nearby.map((enemy) => distance(projected, enemy)));
+      const edgePenalty = projected.x < 46 || projected.x > 907 || projected.y < 76 || projected.y > 466 ? 90 : 0;
+      const formationPenalty = Math.max(0, distance(projected, state.cart) - 260) * .16;
+      const score = nearestDistance - edgePenalty - formationPenalty;
+      if (score > bestScore) {
+        bestScore = score;
+        escapeX = vx;
+        escapeY = vy;
+      }
+    }
+  }
+  const primary = rear[0] ?? nearby[0] ?? null;
+  return {
+    nearbyEnemyCount: nearby.length,
+    rearEnemyIds: rear.map((enemy) => enemy.id),
+    primaryEnemyId: primary?.id ?? null,
+    surrounded,
+    escapeX,
+    escapeY,
+  };
 }
 
 function moveToward(entity: Vec2, target: Vec2, amount: number): void {
@@ -275,7 +359,7 @@ function emitCue(
   label?: string,
   presentation?: { assistSourceId?: string; assistX?: number; assistY?: number; targetLabel?: string; actionLabel?: string; counterAmount?: number },
 ): void {
-  const duration = kind === "arrow" || kind === "bolt" ? .46 : kind === "volley" ? .82 : kind === "core-combo" ? .94 : kind === "coordination" ? .76 : kind === "counter" || kind === "breach" ? .72 : kind === "leader-challenge" ? .95 : kind === "torch" ? .52 : kind === "hook" || kind === "brace" ? .34 : kind === "heal" || kind === "revive" || kind === "rescue" || kind === "repair" ? .62 : kind === "mastery" || kind.startsWith("banner-") ? .72 : kind === "technique" ? .48 : .28;
+  const duration = kind === "arrow" || kind === "bolt" ? .46 : kind === "volley" ? .82 : kind === "core-combo" ? .94 : kind === "coordination" ? .76 : kind === "rear-turn" || kind === "rear-guard" || kind === "rear-hit" ? .72 : kind === "counter" || kind === "breach" ? .72 : kind === "leader-challenge" ? .95 : kind === "torch" ? .52 : kind === "hook" || kind === "brace" ? .34 : kind === "heal" || kind === "revive" || kind === "rescue" || kind === "repair" ? .62 : kind === "mastery" || kind.startsWith("banner-") ? .72 : kind === "technique" ? .48 : .28;
   state.cues.push({
     id: state.nextCueId,
     kind,
@@ -399,6 +483,23 @@ export function createBattleSimulation(config: BattleConfig, doctrineId: BattleD
       enemy.hp = enemy.maxHp;
     }
     enemies.push(enemy);
+  }
+  if (config.id === "development-battle-rear") {
+    const surroundPositions = [
+      { x: 50, y: 270 },
+      { x: 126, y: 196 },
+      { x: 164, y: 270 },
+      { x: 126, y: 344 },
+    ];
+    enemies.slice(0, surroundPositions.length).forEach((enemy, index) => {
+      enemy.type = "raider";
+      enemy.x = surroundPositions[index].x;
+      enemy.y = surroundPositions[index].y;
+      enemy.cooldown = .15 + index * .12;
+      enemy.attackTargetId = null;
+      enemy.attackWindup = 0;
+      enemy.attackWindupDuration = 0;
+    });
   }
   if (config.escortClient) {
     const hunterCount = config.danger >= 66 ? 2 : 1;
@@ -538,6 +639,16 @@ export function createBattleSimulation(config: BattleConfig, doctrineId: BattleD
     coreComboCount: 0,
     coreCounterPulse: 0,
     coreCounterCount: 0,
+    rearThreatPulse: 0,
+    rearSurroundedPulse: 0,
+    rearDefensePulse: 0,
+    rearDefenseOutcome: null,
+    rearAwarenessCooldown: 0,
+    rearResponseTargetId: null,
+    rearResponseSeconds: 0,
+    rearTurnCount: 0,
+    rearGuardCount: 0,
+    rearHitCount: 0,
     defenseCounters: 0,
     defenseBreaches: 0,
     defensePulse: 0,
@@ -867,7 +978,12 @@ function updatePlayer(state: BattleSimulation, input: BattleInput, dt: number): 
   player.cooldown -= dt;
   player.flash -= dt;
   player.attackPulse = Math.max(0, player.attackPulse - dt);
+  state.rearAwarenessCooldown = Math.max(0, state.rearAwarenessCooldown - dt);
   state.techniqueCooldown = Math.max(0, state.techniqueCooldown - dt);
+  const facingTarget = input.targetEnemyId ? state.enemies.find((enemy) => enemy.id === input.targetEnemyId && enemy.hp > 0) : undefined;
+  const targetWasBehind = facingTarget ? attackApproach(player, facingTarget) === "rear" : false;
+  const surroundedBeforeMove = battleRearThreatStatus(state).surrounded;
+  if (surroundedBeforeMove) state.rearSurroundedPulse = 1.1;
   const length = Math.hypot(input.x, input.y);
   const formationTrainingBonus = leaderFormationBonus(state);
   if (length > 0) {
@@ -879,6 +995,22 @@ function updatePlayer(state: BattleSimulation, input: BattleInput, dt: number): 
   }
   player.x = Math.max(28, Math.min(925, player.x));
   player.y = Math.max(55, Math.min(485, player.y));
+  if (facingTarget) {
+    faceToward(player, facingTarget);
+    if (targetWasBehind && state.rearAwarenessCooldown <= 0) {
+      state.rearAwarenessCooldown = .9;
+      state.rearResponseTargetId = facingTarget.id;
+      state.rearResponseSeconds = 1.35;
+      state.rearThreatPulse = 1;
+      state.rearDefensePulse = 1;
+      state.rearDefenseOutcome = "turn";
+      state.rearTurnCount += 1;
+      emitCue(state, "rear-turn", player, facingTarget, 0, "听风回身");
+      state.message = battleRearThreatStatus(state).surrounded
+        ? `${player.name}察觉三面来敌，边退边回身寻隙`
+        : `${player.name}听见背后脚步，已经自动回身接敌`;
+    }
+  }
 
   if (input.formation && input.formation !== state.formation) {
     state.formation = input.formation;
@@ -1332,7 +1464,12 @@ function updateGuards(state: BattleSimulation, dt: number): void {
     if (guard.id === state.rescueRescuerId || guard.id === state.repairerId || (state.volleyTargetId && guardHasEquipmentTrait(guard, "crossbow"))) continue;
     if (useGuardMastery(state, guard)) continue;
     if (useGuardEquipmentSupport(state, guard, aliveEnemies)) continue;
-    const closest = [...aliveEnemies].sort((a, b) => {
+    const rearCoverTarget = guard.role === "副镖头"
+      ? aliveEnemies
+        .filter((enemy) => distance(enemy, state.player) <= 164 && attackApproach(state.player, enemy) === "rear")
+        .sort((a, b) => distance(a, state.player) - distance(b, state.player))[0]
+      : undefined;
+    const closest = rearCoverTarget ?? [...aliveEnemies].sort((a, b) => {
       if (state.clientGuarded && a.clientHunter !== b.clientHunter) return a.clientHunter ? -1 : 1;
       const bannerUrgent = state.banner.stolen || state.banner.captureProgress > 0;
       const bannerTarget = (enemy: Enemy) => state.banner.stolen ? enemy.id === state.banner.carrierId : enemy.type === "banner";
@@ -1361,7 +1498,7 @@ function updateGuards(state: BattleSimulation, dt: number): void {
     const formationTrainingBonus = formationProficiencyRank(guard.formationExperience[state.formation]).bonus;
     const pursuitRange = (battleObjectiveMode(state.config) === "pursuit" && state.formation === "advance" ? 430 : bannerPursuit ? 435 : 125) + guard.engageRangeBonus + (masteryPursuit ? 90 : 0);
     const focusRange = state.clientGuarded ? 250 : state.formation === "hold" ? 205 : battleObjectiveMode(state.config) === "pursuit" || bannerPursuit ? 520 : 170;
-    if (closest && distance(closest, focus) < focusRange && distance(guard, closest) < pursuitRange) {
+    if (closest && (rearCoverTarget || distance(closest, focus) < focusRange) && distance(guard, closest) < (rearCoverTarget ? Math.max(185, pursuitRange) : pursuitRange)) {
       if (distance(guard, closest) > 46) moveToward(guard, closest, (state.rally > 0 ? 128 : 105) * guard.movementMultiplier * doctrineModifiers.guardSpeed * (1 + formationTrainingBonus * .5) * (masteryPursuit ? 1.25 : bannerPursuit ? 1.15 : 1) * dt);
       else if (guard.cooldown <= 0) {
         const equipmentFormationBonus = state.formation === "horses" ? guard.horseGuardBonus : state.formation === "hold" ? guard.cartGuardBonus : 0;
@@ -1392,6 +1529,12 @@ function updateGuards(state: BattleSimulation, dt: number): void {
         }
         if (cueKind === "brace") guard.supportPulse = .52;
         emitCue(state, cueKind, guard, closest, amount, cueLabel);
+        if (rearCoverTarget) {
+          guard.supportPulse = Math.max(guard.supportPulse, .58);
+          guard.supportKind = "rear-guard";
+          state.rearThreatPulse = Math.max(state.rearThreatPulse, .72);
+          state.message = `${guard.name}补到${state.player.name}身后，截住夹击敌手`;
+        }
         resolveGuardCoordination(state, guard, closest, amount, targetHpBeforeStrike);
         guard.attackPulse = .24;
         guard.cooldown = state.rally > 0 ? 0.58 : 0.8;
@@ -1568,6 +1711,13 @@ function leaderCounterDeputy(state: BattleSimulation): Guard | undefined {
   ));
 }
 
+function leaderRearGuardDeputy(state: BattleSimulation, enemy: Enemy): Guard | undefined {
+  return state.guards
+    .filter((guard) => guard.role === "副镖头" && guard.hp > 0 && guard.id !== state.rescueRescuerId && guard.id !== state.repairerId)
+    .filter((guard) => distance(guard, state.player) <= 176 && distance(guard, enemy) <= 210)
+    .sort((a, b) => distance(a, enemy) - distance(b, enemy))[0];
+}
+
 function boarderCounterGuard(state: BattleSimulation): Guard | undefined {
   return state.guards
     .filter((guard) => guard.hp > 0 && guard.id !== state.rescueRescuerId && guard.id !== state.repairerId)
@@ -1703,7 +1853,9 @@ function resolveEnemyAttack(state: BattleSimulation, enemy: Enemy, target: Enemy
   const boarderWasAttached = enemy.type === "boarder" && enemy.boarded;
   const attackAction = enemyAttackAction(enemy.type, boarderWasAttached);
   const baseDamage = (enemy.type === "leader" ? 16 : enemy.type === "archer" ? 5 : enemy.type === "cutter" ? 9 : enemy.type === "torch" ? 7 : enemy.type === "boarder" ? 5.5 : 6) * (enemy.rallied > 0 ? 1.25 : 1);
-  const cueKind: BattleCueKind = enemy.type === "archer" ? "arrow" : enemy.type === "hooker" || enemy.type === "boarder" ? "hook" : enemy.type === "torch" ? "torch" : "enemy-strike";
+  const playerRearAttack = target === state.player && enemy.type !== "archer" && attackApproach(state.player, enemy) === "rear";
+  const rearGuardDeputy = playerRearAttack ? leaderRearGuardDeputy(state, enemy) : undefined;
+  const cueKind: BattleCueKind = playerRearAttack && !rearGuardDeputy ? "rear-hit" : enemy.type === "archer" ? "arrow" : enemy.type === "hooker" || enemy.type === "boarder" ? "hook" : enemy.type === "torch" ? "torch" : "enemy-strike";
   const defense = criticalDefenseResolution(state, enemy, target);
   const coreCounterTuning = defense?.deputy
     ? battleCoreCounterTuning(state.player.experience, guardExperience(state, defense.deputy.id), state.config.leader?.deputyBond ?? 0, state.config.leader?.coreCombatFocusId, state.config.leader?.coreCombatExperience ?? 0)
@@ -1742,11 +1894,11 @@ function resolveEnemyAttack(state: BattleSimulation, enemy: Enemy, target: Enemy
   } else if (target !== state.cart && "id" in target) {
     const guardTarget = state.guards.find((guard) => guard.id === target.id);
     const amount = target === state.player
-      ? baseDamage * state.player.armorMultiplier * (defense?.countered ? (coreCounterTuning?.incomingMultiplier ?? .42) * coreCounterEquipmentMultiplier : 1)
+      ? baseDamage * state.player.armorMultiplier * (playerRearAttack ? rearGuardDeputy ? .5 : 1.18 : 1) * (defense?.countered ? (coreCounterTuning?.incomingMultiplier ?? .42) * coreCounterEquipmentMultiplier : 1)
       : guardTarget ? baseDamage * guardTarget.armorMultiplier : baseDamage;
     resolvedDamage = amount;
     damage(target, amount);
-    emitCue(state, cueKind, enemy, target, amount);
+    emitCue(state, cueKind, enemy, target, amount, playerRearAttack ? rearGuardDeputy ? "副手封背" : "背袭得手" : undefined);
   } else {
     const holdCover = state.formation === "hold" ? 0.68 : 1;
     const disciplineCover = nearbyConvoyProtection(state, state.cart);
@@ -1764,6 +1916,33 @@ function resolveEnemyAttack(state: BattleSimulation, enemy: Enemy, target: Enemy
     if (enemy.type === "torch") {
       state.cart.cargo = Math.max(0, state.cart.cargo - 1.6 * (state.config.cargoProtection ?? 1) * holdCover * disciplineCover * doctrineModifiers.convoyDamage);
       state.message = state.formation === "hold" ? "停阵挡住火手，快将他逼退！" : "火手已经贴近车篷！";
+    }
+  }
+  if (playerRearAttack) {
+    faceToward(state.player, enemy);
+    state.rearThreatPulse = 1;
+    state.rearDefensePulse = 1;
+    state.rearAwarenessCooldown = Math.max(state.rearAwarenessCooldown, .7);
+    state.rearResponseTargetId = enemy.id;
+    state.rearResponseSeconds = 1.35;
+    if (rearGuardDeputy) {
+      const counterAmount = 8 * rearGuardDeputy.power * battleMoraleModifier(state);
+      const counterDamageDone = recordGuardDamage(state, rearGuardDeputy, enemy, counterAmount);
+      faceToward(rearGuardDeputy, enemy);
+      rearGuardDeputy.attackPulse = Math.max(rearGuardDeputy.attackPulse, .3);
+      rearGuardDeputy.cooldown = Math.max(rearGuardDeputy.cooldown, .48);
+      rearGuardDeputy.supportPulse = Math.max(rearGuardDeputy.supportPulse, 1);
+      rearGuardDeputy.supportKind = "rear-guard";
+      enemy.stunned = Math.max(enemy.stunned, .38);
+      emitCue(state, "rear-guard", rearGuardDeputy, enemy, counterDamageDone, "副手封背", { assistSourceId: state.player.id, assistX: state.player.x, assistY: state.player.y });
+      recordGuardSupport(state, rearGuardDeputy, Math.max(2, baseDamage - resolvedDamage));
+      state.rearGuardCount += 1;
+      state.rearDefenseOutcome = "guard";
+      state.message = `${rearGuardDeputy.name}插入背后封住来刃，${state.player.name}回身反打`;
+    } else {
+      state.rearHitCount += 1;
+      state.rearDefenseOutcome = "hit";
+      state.message = `${state.player.name}背后中招，已经回身脱离夹击方向`;
     }
   }
   if (defense?.countered && enemy.type === "boarder") {
@@ -2053,6 +2232,22 @@ export function battleThreatNotice(state: BattleSimulation): BattleThreatNotice 
       advice: state.clientGuarded ? "护卫正截住劫人者" : "可下护住活镖令",
     };
   }
+  const rearStatus = battleRearThreatStatus(state);
+  if (rearStatus.rearEnemyIds.length > 0 || rearStatus.surrounded || state.rearSurroundedPulse > 0) {
+    const deputy = leaderCounterDeputy(state);
+    return {
+      tone: "command",
+      label: rearStatus.surrounded || state.rearSurroundedPulse > 0 ? `三面受敌 · 近身 ${Math.max(3, rearStatus.nearbyEnemyCount)} 人` : `背后逼近 ${rearStatus.rearEnemyIds.length} 人`,
+      advice: rearStatus.surrounded || state.rearSurroundedPulse > 0
+        ? "镖头正面迎敌并自动侧退寻隙"
+        : deputy ? `镖头回身 · ${deputy.name}补后` : "镖头正在自动回身接敌",
+    };
+  }
+  if (state.rearDefensePulse > 0 && state.rearDefenseOutcome) return {
+    tone: state.rearDefenseOutcome === "hit" ? "command" : "steady",
+    label: state.rearDefenseOutcome === "guard" ? "副镖头封住背袭" : state.rearDefenseOutcome === "turn" ? "镖头已自动回身" : "背袭命中 · 正在脱围",
+    advice: state.rearDefenseOutcome === "guard" ? "主副换位反打" : state.rearDefenseOutcome === "turn" ? "保持正面迎敌" : "自动侧退拉开夹击",
+  };
   if (state.banner.lost) return { tone: "command", label: "镖旗已经失守", advice: "先保人货脱阵" };
   if (state.banner.stolen) {
     const flagCarrier = alive.find((enemy) => enemy.id === state.banner.carrierId);
@@ -2137,6 +2332,14 @@ export function battleThreatNotice(state: BattleSimulation): BattleThreatNotice 
 export function autoBattleInput(state: BattleSimulation, strategy: BattleStrategy = "balanced", techniquePolicy: TechniquePolicy = "auto"): BattleInput {
   const formation = strategyFormation(state, strategy);
   const target = strategyTarget(state, strategy);
+  const rearStatus = battleRearThreatStatus(state);
+  const responseTarget = state.rearResponseSeconds > 0 && state.rearResponseTargetId
+    ? state.enemies.find((enemy) => enemy.id === state.rearResponseTargetId && enemy.hp > 0)
+    : undefined;
+  const rearTarget = responseTarget ?? (rearStatus.primaryEnemyId && rearStatus.rearEnemyIds.includes(rearStatus.primaryEnemyId)
+    ? state.enemies.find((enemy) => enemy.id === rearStatus.primaryEnemyId)
+    : undefined);
+  const tacticalTarget = rearTarget ?? target;
   const martialArt = martialArtById(state.config.martialArtId);
   const rescueTarget = strategy === "rescue" && state.rescueTargetId ? state.guards.find((guard) => guard.id === state.rescueTargetId) : undefined;
   const leaderAnchor = rescueTarget ? { x: Math.min(914, rescueTarget.x + 58), y: Math.max(68, rescueTarget.y - 48) } : battleLeaderAnchor(state, formation);
@@ -2155,15 +2358,16 @@ export function autoBattleInput(state: BattleSimulation, strategy: BattleStrateg
     retreat: false,
     formation,
     strategy,
+    targetEnemyId: undefined,
   });
-  if (!target) return returnToFormation();
+  if (!tacticalTarget) return returnToFormation();
   const formationFocus = rescueTarget ?? (strategy === "guard-client" && state.client ? state.client : formation === "horses" ? state.horse : state.cart);
   const defenseRadius = strategy === "rescue" ? 205 : strategy === "guard-client" ? 260 : strategy === "repair-cart" ? 275 : strategy === "focus-fire" ? 250 : formation === "horses" ? 220 : formation === "hold" ? 238 : Number.POSITIVE_INFINITY;
-  if (distance(formationFocus, target) > defenseRadius) return returnToFormation();
-  const targetDistance = distance(state.player, target);
+  if (!rearTarget && distance(formationFocus, tacticalTarget) > defenseRadius) return returnToFormation();
+  const targetDistance = distance(state.player, tacticalTarget);
   const desiredRange = martialArt.attackRange * .72;
-  const x = targetDistance > desiredRange ? target.x - state.player.x : 0;
-  const y = targetDistance > desiredRange ? target.y - state.player.y : 0;
+  const x = rearStatus.surrounded ? rearStatus.escapeX : targetDistance > desiredRange ? tacticalTarget.x - state.player.x : 0;
+  const y = rearStatus.surrounded ? rearStatus.escapeY : targetDistance > desiredRange ? tacticalTarget.y - state.player.y : 0;
   const nearby = state.enemies.filter((enemy) => enemy.hp > 0 && distance(state.player, enemy) <= (martialArt.id === "guard-spear" ? 148 : martialArt.id === "binding-hands" ? 88 : 210));
   const specialistNearby = nearby.some((enemy) => enemy.carrier || enemy.type === "banner" || enemy.type === "leader" || enemy.type === "boarder" || enemy.type === "hooker" || enemy.type === "cutter" || enemy.type === "torch");
   const techniqueWorthwhile = martialArt.id === "severing-sabre" ? specialistNearby : nearby.length >= 2 || specialistNearby;
@@ -2181,6 +2385,7 @@ export function autoBattleInput(state: BattleSimulation, strategy: BattleStrateg
     retreat: false,
     formation,
     strategy,
+    targetEnemyId: tacticalTarget.id,
   };
 }
 
@@ -2205,6 +2410,11 @@ export function stepBattle(state: BattleSimulation, input: BattleInput, dt: numb
   state.coreComboPulse = Math.max(0, state.coreComboPulse - safeDt);
   state.coreComboCooldown = Math.max(0, state.coreComboCooldown - safeDt);
   state.coreCounterPulse = Math.max(0, state.coreCounterPulse - safeDt);
+  state.rearThreatPulse = Math.max(0, state.rearThreatPulse - safeDt);
+  state.rearSurroundedPulse = Math.max(0, state.rearSurroundedPulse - safeDt);
+  state.rearDefensePulse = Math.max(0, state.rearDefensePulse - safeDt);
+  state.rearResponseSeconds = Math.max(0, state.rearResponseSeconds - safeDt);
+  if (state.rearResponseSeconds <= 0) state.rearResponseTargetId = null;
   state.defensePulse = Math.max(0, state.defensePulse - safeDt);
   if (state.coordinationWindow && state.coordinationWindow.expiresAt < state.elapsed) state.coordinationWindow = null;
   state.cues = state.cues.filter((cue) => {

@@ -15,6 +15,7 @@ import {
   continueAfterSettlement,
   createInitialGame,
   createWorldActorEvent,
+  departureReadinessForPlan,
   establishOffice,
   factionAudienceOffer,
   factionPermitOffer,
@@ -169,6 +170,19 @@ function developmentBattlePreview(config: BattleConfig): BattleConfig {
       cartHealthRatio: .92,
       horseHealthRatio: .92,
       enemyLeaderName: undefined,
+    };
+  if (preview === "rear") return {
+      ...config,
+      danger: 72,
+      objective: "识破背袭，主副换位脱出合围",
+      objectiveMode: "holdout",
+      objectiveSeconds: 36,
+      objectiveNote: "敌手从总镖头前后同时贴近；人物会判定身后近敌、静止时也持续校正朝向，三面受敌则边迎敌边侧退。副镖头在近侧会自动插入背袭路线。",
+      enemyLeaderName: undefined,
+      leader: { ...(config.leader ?? { name: "沈砺", experience: 9, healthRatio: 1, power: 1.2 }), power: 1.18 },
+      guards: config.guards.map((guard, index) => index === 0
+        ? { ...guard, role: "副镖头", power: 1.22, experience: Math.max(9, guard.experience ?? 0) }
+        : guard),
     };
   if (preview === "repair") return {
       ...config,
@@ -758,6 +772,7 @@ function RouteCard({
   const cities = plan.cityIds.map((id) => cityById(id).name).join(" · ");
   const insight = routePlanInsight(game, plan);
   const travel = routePlanTravelForecast(game, plan);
+  const readiness = departureReadinessForPlan(game, plan);
   const routeStance = travelStanceById(game.journey?.stance);
   const strongestWeather = [...travel.weatherReports].sort((a, b) => b.weather.severity - a.weather.severity)[0];
   const furthestWeather = travel.weatherReports[travel.weatherReports.length - 1];
@@ -793,6 +808,20 @@ function RouteCard({
           {strongestWeather && <span className={`weather-tag weather-${strongestWeather.weather.kind}`}>{travel.weatherSummary} · {furthestWeather.confidence.label}</span>}
           {travel.days !== plan.days && <span className="convoy-modifier">车马行策 {travel.days - plan.days > 0 ? "+" : ""}{travel.days - plan.days}日</span>}
         </div>
+        <section className={`route-readiness readiness-${readiness.tone}`} aria-label={`${routeCandidateSeal(index)}路成行判断：${readiness.label}`}>
+          <i>{readiness.seal}</i>
+          <div className="route-readiness-copy"><small>行前成行判断</small><b>{readiness.label}</b><p>{readiness.summary}</p></div>
+          <dl>
+            <div className={readiness.deadlineMargin < 0 ? "is-deficit" : readiness.deadlineMargin <= 2 ? "is-tight" : "is-sound"}><dt>期限</dt><dd>{readiness.deadlineMargin < 0 ? `误 ${Math.abs(readiness.deadlineMargin)}日` : `余 ${readiness.deadlineMargin}日`}</dd></div>
+            <div className={readiness.supplyBalance < 0 ? "is-deficit" : "is-sound"}><dt>行粮</dt><dd>{readiness.supplyBalance < 0 ? `缺 ${Math.abs(readiness.supplyBalance)}` : `余 ${readiness.supplyBalance}`}</dd></div>
+            <div className={readiness.staminaBalance < 0 ? "is-deficit" : "is-sound"}><dt>马力</dt><dd>{readiness.staminaBalance < 0 ? `缺 ${Math.abs(readiness.staminaBalance)}` : `余 ${readiness.staminaBalance}`}</dd></div>
+            <div className={readiness.combatReady ? "is-sound" : "is-tight"}><dt>战阵</dt><dd>{readiness.combatReady ? "主副齐" : `${readiness.selectedCrewCount}/3人`}</dd></div>
+          </dl>
+          <div className="route-readiness-notes">
+            {readiness.warnings.slice(0, 3).map((warning) => <span key={warning} className="is-warning">！{warning}</span>)}
+            {readiness.strengths.slice(0, Math.max(1, 3 - readiness.warnings.length)).map((strength) => <span key={strength} className="is-strength">✓ {strength}</span>)}
+          </div>
+        </section>
         <p className="route-cities">{cities}</p>
         <p>{names}</p>
         <small>{plan.description}</small>
@@ -801,7 +830,7 @@ function RouteCard({
           <button disabled={insight.fullySurveyed || !hasScout} onClick={() => onInvestigate(plan, "scout")}>{hasScout ? "遣趟子手 · 1日" : "需趟子手"}</button>
         </div>
       </div>
-      <button className="route-pick" disabled={disabled} onClick={() => onChoose(plan)}>{disabled ? "先选足三名随行人" : "按此路出发"}</button>
+      <button className="route-pick" disabled={disabled} onClick={() => onChoose(plan)}>{disabled ? "先选足三名随行人" : readiness.tone === "danger" ? "知险仍按此路出发" : "按此路出发"}</button>
     </article>
   );
 }

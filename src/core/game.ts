@@ -554,6 +554,22 @@ export interface RoutePlanTravelForecastResult {
   weatherSummary: string;
 }
 
+export type DepartureReadinessTone = "ready" | "caution" | "danger";
+
+export interface DepartureReadinessResult {
+  tone: DepartureReadinessTone;
+  seal: "成" | "慎" | "险";
+  label: string;
+  summary: string;
+  deadlineMargin: number;
+  supplyBalance: number;
+  staminaBalance: number;
+  combatReady: boolean;
+  selectedCrewCount: number;
+  warnings: string[];
+  strengths: string[];
+}
+
 export function routePlanTravelForecast(game: GameState, plan: RoutePlan): RoutePlanTravelForecastResult {
   let stamina = game.convoy.horseStamina;
   let days = 0;
@@ -595,6 +611,91 @@ export function routePlanTravelForecast(game: GameState, plan: RoutePlan): Route
     modifiers: [...modifiers],
     weatherReports,
     weatherSummary: weatherSequenceSummary(weatherReports.map((report) => report.weather)),
+  };
+}
+
+/**
+ * Turn the route forecast into a compact decision rather than asking the
+ * player to mentally compare deadline, stores, horse strength, borders and
+ * the selected fighting core. Negative stores do not hard-block departure:
+ * multi-segment journeys can still recover at a waystation, but the need to
+ * do so must be explicit before the route is chosen.
+ */
+export function departureReadinessForPlan(game: GameState, plan: RoutePlan): DepartureReadinessResult {
+  const travel = routePlanTravelForecast(game, plan);
+  const insight = routePlanInsight(game, plan);
+  const selectedCrew = journeyCrew(game);
+  const selectedCrewCount = selectedCrew.length;
+  const journey = game.journey;
+  const deadlineMargin = (journey?.contract.deadline ?? travel.days) - travel.days;
+  const supplyBalance = game.supplies - travel.supplyCost;
+  const staminaBalance = game.convoy.horseStamina - travel.staminaCost;
+  const routeTerrains = plan.routeIds.map((routeId) => routeById(routeId).terrain);
+  const roles = new Set(selectedCrew.map((member) => member.role));
+  const deputy = selectedCrew.find((member) => member.role === "副镖头");
+  const woundedSelected = selectedCrew.filter((member) => member.hp < 35 || member.injury);
+  const leaderFit = game.convoy.leaderHp >= 45 && !game.leader.injury;
+  const combatReady = Boolean(deputy && deputy.hp >= 35 && leaderFit && selectedCrewCount === 3);
+  const missingBorderFactions = plan.cityIds.slice(1).reduce<FactionId[]>((result, cityId, index) => {
+    const previousOwner = game.cities[plan.cityIds[index]].owner;
+    const owner = game.cities[cityId].owner;
+    if (owner !== previousOwner && !hasActivePermit(game, owner) && !result.includes(owner)) result.push(owner);
+    return result;
+  }, []);
+
+  const warnings: string[] = [];
+  const strengths: string[] = [];
+  if (selectedCrewCount !== 3) warnings.push(`随行人手 ${selectedCrewCount}/3，尚未成队`);
+  if (!deputy) warnings.push("未带副镖头，主副合击与截锋无法发动");
+  else if (deputy.hp < 35 || deputy.injury) warnings.push(`${deputy.name}带伤，双核心战力不整`);
+  else if (leaderFit) strengths.push(`总镖头与${deputy.name}双核心齐备`);
+  if (!leaderFit) warnings.push(game.leader.injury ? "总镖头带有伤势" : "总镖头气血偏低");
+  if (woundedSelected.length) warnings.push(`${woundedSelected.length} 名随员带伤或气血偏低`);
+  if (deadlineMargin < 0) warnings.push(`照此行程预计误限 ${Math.abs(deadlineMargin)} 日`);
+  else if (deadlineMargin <= 2) warnings.push(`期限只余 ${deadlineMargin} 日回旋`);
+  else strengths.push(`期限尚余 ${deadlineMargin} 日`);
+  if (supplyBalance < 0) warnings.push(`途中至少需补 ${Math.abs(supplyBalance)} 份粮`);
+  else strengths.push(`余粮可留 ${supplyBalance} 份应变`);
+  if (staminaBalance < 0) warnings.push(`马力缺口 ${Math.abs(staminaBalance)}，须在中继歇马`);
+  else strengths.push(`马力尚余 ${staminaBalance}`);
+  if (insight.blockedSegments > 0) warnings.push(`${insight.blockedSegments} 段今报不通`);
+  if (insight.freshness !== "fresh" && !roles.has("趟子手")) warnings.push("路报有旧闻且未带趟子手");
+  if (routeTerrains.includes("mountain") && roles.has("向导")) strengths.push("向导可省山路粮耗");
+  if (routeTerrains.includes("mountain") && !roles.has("向导") && insight.knownDanger >= 55) warnings.push("险山路未带向导");
+  if (routeTerrains.includes("river") && game.convoy.cargoIntegrity < 75) warnings.push("水路在前，当前镖物成色偏低");
+  if (roles.has("车把式")) strengths.push("车把式可应对坏轴与途中抢修");
+  if (roles.has("医师") && (game.convoy.leaderHp < 80 || woundedSelected.length)) strengths.push("随队医师可在落脚时诊治");
+  if (missingBorderFactions.length) warnings.push(`跨${missingBorderFactions.map((id) => FACTIONS[id].short).join("、")}境尚无路引`);
+  else if (insight.borderSegments > 0) strengths.push("所涉异境路引已备");
+
+  const resourcePressure = Math.max(0, -supplyBalance) * 3 + Math.max(0, -staminaBalance);
+  const hardDanger = selectedCrewCount !== 3 || insight.blockedSegments > 0 || deadlineMargin < 0 || resourcePressure >= 45;
+  const tone: DepartureReadinessTone = hardDanger ? "danger" : warnings.length ? "caution" : "ready";
+  const label = tone === "ready"
+    ? "粮马齐备，可以成行"
+    : tone === "danger"
+      ? deadlineMargin < 0 ? "照此路难守原限" : insight.blockedSegments > 0 ? "今报有路段不通" : selectedCrewCount !== 3 ? "人手未齐，暂不成队" : "粮马压力过重"
+      : supplyBalance < 0 || staminaBalance < 0 ? "可走，但须途中整顿" : combatReady ? "可以出发，余量有限" : "行路可走，战阵未齐";
+  const summary = tone === "ready"
+    ? "现有粮马能够覆盖估算行程，仍应给旧报与突发事件留出余地。"
+    : tone === "danger"
+      ? "先换行策、补齐人马或核验道路；若仍强行上路，误期与伤损很可能同时发生。"
+      : supplyBalance < 0 || staminaBalance < 0
+        ? "必须利用中继驿亭补粮歇马，不能按纸面日数一路硬催。"
+        : "路线本身可行，但主副战阵、期限或路报仍有一项缺少余量。";
+
+  return {
+    tone,
+    seal: tone === "ready" ? "成" : tone === "danger" ? "险" : "慎",
+    label,
+    summary,
+    deadlineMargin,
+    supplyBalance,
+    staminaBalance,
+    combatReady,
+    selectedCrewCount,
+    warnings,
+    strengths,
   };
 }
 

@@ -2186,7 +2186,7 @@ describe("护车战规则", () => {
     const torch = battle.enemies.find((enemy) => enemy.type === "torch")!;
     for (const enemy of battle.enemies) enemy.hp = enemy === cutter || enemy === torch ? enemy.maxHp : 0;
     cutter.x = battle.player.x + 120; cutter.y = battle.player.y;
-    torch.x = battle.player.x - 45; torch.y = battle.player.y;
+    torch.x = battle.player.x; torch.y = battle.player.y + 120;
     const horseOrder = autoBattleInput(battle, "guard-horses", "auto");
     expect(horseOrder.x).toBeGreaterThan(0);
     expect(horseOrder.formation).toBe("horses");
