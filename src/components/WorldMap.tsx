@@ -8,7 +8,7 @@ import { ROUTE_CONDITION_EFFECTS } from "../core/routeContent";
 import { ROUTE_LANDMARKS, routeLandmarkKind, type RouteLandmarkKind } from "../core/routeLandmarkContent";
 import { worldActorEffectLabel } from "../core/worldActorContent";
 import { rivalBureauByActor, rivalRank, rivalRelation } from "../core/rivalContent";
-import { regionalWeatherSnapshot, weatherEffectForRoute, weatherForCity, weatherForRoute } from "../core/weatherContent";
+import { regionalWeatherSnapshot, weatherEffectForRoute, weatherForCity, weatherForRoute, weatherRoadPressure } from "../core/weatherContent";
 import { gameCalendarDate, seasonalTravelAdvisory } from "../core/calendarContent";
 import { roadInfluenceSnapshot } from "../core/roadPowerContent";
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
@@ -409,6 +409,7 @@ export default function WorldMap({
   const selectedRouteCondition = selectedRoute ? ROUTE_CONDITION_EFFECTS[selectedRouteIntel?.knownCondition ?? "clear"] : null;
   const selectedRouteWeather = selectedRoute ? weatherForRoute(game.seed, game.day, selectedRoute) : null;
   const selectedRouteWeatherEffect = selectedRoute && selectedRouteWeather ? weatherEffectForRoute(selectedRouteWeather, selectedRoute.terrain) : null;
+  const selectedRouteWeatherPressure = selectedRoute && selectedRouteWeather ? weatherRoadPressure(selectedRouteWeather, selectedRoute.terrain) : null;
   const selectedRoutePresentation = selectedRoute ? roadPresentationById.get(selectedRoute.id) ?? null : null;
   const selectedRoadInfluence = selectedRoute ? roadInfluenceSnapshot(selectedRoute.id, game.routeStates[selectedRoute.id], game.day) : null;
   const selectedRouteOwners = selectedRoute ? routeOwners(game.cities, selectedRoute) : null;
@@ -919,7 +920,7 @@ export default function WorldMap({
             <span><small>{selectedRoadInfluence.power.name} · 匪势 {selectedRoadInfluence.pressure}/100</small><b>{selectedRoadInfluence.label}{selectedRoadInfluence.effectiveUntilDay ? ` · 至第 ${selectedRoadInfluence.effectiveUntilDay} 日` : ""}</b><p>{selectedRoadInfluence.note}</p></span>
           </div>
           <footer>
-            <span><b>{selectedRouteCondition.seal}·{selectedRouteCondition.label}</b><small>{selectedRouteCondition.description}</small></span>
+            <span><b>{selectedRouteCondition.seal}·{selectedRouteCondition.label}</b><small>{selectedRouteCondition.description}{selectedRouteWeatherPressure?.preferredCondition ? ` 当前${selectedRouteWeatherPressure.cause}，若天象延续易成${ROUTE_CONDITION_EFFECTS[selectedRouteWeatherPressure.preferredCondition].label}。` : ""}</small></span>
             <span><b>{selectedRouteActors.length ? `${selectedRouteActors.length} 支行旅在路` : "路面未见行旅"}</b><small>{selectedRoadInfluence.lastOutcome ? `上次处置：${roadOutcomeLabel[selectedRoadInfluence.lastOutcome]} · 第 ${selectedRoadInfluence.lastDay} 日` : "尚无本号处置记录"}</small></span>
           </footer>
         </section>

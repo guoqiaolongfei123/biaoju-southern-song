@@ -81,6 +81,7 @@ import {
   weatherEffectForRoute,
   weatherForRoute,
   weatherForecastConfidence,
+  weatherRoadPressure,
   weatherSequenceSummary,
   type RegionalWeather,
   type RouteWeatherEffect,
@@ -1944,6 +1945,7 @@ export function evolveRouteConditions(
   rngState: number,
   elapsedDays: number,
   excludedRouteIds: ReadonlySet<string> = new Set(),
+  weatherSeed = rngState,
 ): RouteConditionEvolution {
   const routeStates = Object.fromEntries(ROUTES.map((route) => {
     const previous = source[route.id] ?? { condition: "clear" as const, sinceDay: 1, clearsDay: null };
@@ -1967,23 +1969,43 @@ export function evolveRouteConditions(
       ? { ...previous, ...persistentInfluence, condition: "clear" as const, sinceDay: targetDay, clearsDay: null }
       : { ...previous, ...persistentInfluence }];
   }));
+  const candidates = ROUTES.filter((route) => !excludedRouteIds.has(route.id) && routeStates[route.id].condition === "clear");
+  const weatherByRoute = new Map(candidates.map((route) => {
+    const weather = weatherForRoute(weatherSeed, targetDay, route);
+    return [route.id, { weather, pressure: weatherRoadPressure(weather, route.terrain) }] as const;
+  }));
+  const averageWeatherPressure = candidates.length
+    ? candidates.reduce((sum, route) => sum + (weatherByRoute.get(route.id)?.pressure.incidentWeight ?? 1), 0) / candidates.length
+    : 1;
+  const weatherIncidentBonus = Math.min(.1, Math.max(0, averageWeatherPressure - 1) * .022);
   const eventRoll = randomStep(rngState);
   let state = eventRoll.state;
-  if (eventRoll.value >= Math.min(.84, .07 + elapsedDays * .065)) return { routeStates, rngState: state, news: [] };
-  const candidates = ROUTES.filter((route) => !excludedRouteIds.has(route.id) && routeStates[route.id].condition === "clear");
+  if (eventRoll.value >= Math.min(.84, .07 + elapsedDays * .065 + weatherIncidentBonus)) return { routeStates, rngState: state, news: [] };
   if (!candidates.length) return { routeStates, rngState: state, news: [] };
-  const routeRoll = pickRandom(state, candidates);
+  const routeRoll = randomStep(state);
   state = routeRoll.state;
-  const route = routeRoll.value;
+  const totalWeight = candidates.reduce((sum, route) => sum + (weatherByRoute.get(route.id)?.pressure.incidentWeight ?? 1), 0);
+  let routePick = routeRoll.value * totalWeight;
+  let route = candidates[candidates.length - 1];
+  for (const candidate of candidates) {
+    routePick -= weatherByRoute.get(candidate.id)?.pressure.incidentWeight ?? 1;
+    if (routePick <= 0) {
+      route = candidate;
+      break;
+    }
+  }
+  const routeWeather = weatherByRoute.get(route.id)!;
   const typeRoll = randomStep(state);
   state = typeRoll.state;
   const adjacentCrisis = [cities[route.from].status, cities[route.to].status].some((status) => ["besieged", "captured", "martial", "contested", "disrupted"].includes(status));
   let condition: RouteCondition;
   if (adjacentCrisis && typeRoll.value < .58) condition = "blockaded";
+  else if (routeWeather.pressure.preferredCondition && typeRoll.value < .82) condition = routeWeather.pressure.preferredCondition;
   else if (route.terrain === "river") condition = typeRoll.value < .55 ? "flooded" : "banditry";
   else if (route.terrain === "mountain") condition = typeRoll.value < .58 ? "muddy" : "banditry";
   else condition = typeRoll.value < .36 ? "muddy" : typeRoll.value < .72 ? "banditry" : "blockaded";
-  const durationRoll = randomInt(state, 3, 6);
+  const weatherCausedCondition = routeWeather.pressure.preferredCondition === condition;
+  const durationRoll = randomInt(state, 3 + (weatherCausedCondition ? routeWeather.pressure.durationModifier : 0), 6 + (weatherCausedCondition ? routeWeather.pressure.durationModifier : 0));
   state = durationRoll.state;
   routeStates[route.id] = {
     ...routeStates[route.id],
@@ -1995,7 +2017,7 @@ export function evolveRouteConditions(
   return {
     routeStates,
     rngState: state,
-    news: [`【道路急报】${route.name}${ROUTE_CONDITION_EFFECTS[condition].label}，预计 ${durationRoll.value} 日内方有转机。`],
+    news: [`【道路急报】${route.name}${weatherCausedCondition ? `受${routeWeather.weather.seal}·${routeWeather.weather.label}所累，${routeWeather.pressure.cause}，` : adjacentCrisis && condition === "blockaded" ? "邻境军情骤紧，" : "路面骤生异状，"}${ROUTE_CONDITION_EFFECTS[condition].label}，预计 ${durationRoll.value} 日内方有转机。`],
   };
 }
 
@@ -2098,7 +2120,7 @@ function withWorldAdvance(game: GameState, days: number): GameState {
   Object.assign(cities, conditionEvolution.cities);
   news.unshift(...conditionEvolution.news);
   const currentRouteId = game.journey?.plan.routeIds[game.journey.segmentIndex];
-  const routeEvolution = evolveRouteConditions(game.routeStates, cities, game.day + days, rngState, days, new Set(currentRouteId ? [currentRouteId] : []));
+  const routeEvolution = evolveRouteConditions(game.routeStates, cities, game.day + days, rngState, days, new Set(currentRouteId ? [currentRouteId] : []), game.seed);
   rngState = routeEvolution.rngState;
   news.unshift(...routeEvolution.news);
   next = { ...next, cities, routeStates: routeEvolution.routeStates, worldActors: actorEvolution.actors, rivalBureaus: rivalEvolution.bureaus, news: news.slice(0, 6), rngState };

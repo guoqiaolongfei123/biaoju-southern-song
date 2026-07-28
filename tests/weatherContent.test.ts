@@ -8,6 +8,7 @@ import {
   weatherForRoute,
   weatherForecastConfidence,
   weatherRegionForLonLat,
+  weatherRoadPressure,
   weatherSeason,
   type WeatherKind,
 } from "../src/core/weatherContent";
@@ -56,6 +57,15 @@ describe("区域天候与路线预报", () => {
     expect(river.dayModifier).toBeGreaterThan(official.dayModifier);
     expect(river.dangerModifier).toBeGreaterThan(official.dangerModifier);
     expect(mountain.dangerModifier).toBeGreaterThan(official.dangerModifier);
+  });
+
+  it("连雨与雷暴会把对应道路推向可持续数日的泥泞或涨水", () => {
+    const rain = weatherForRegion(seedForWeather("rain"), 1, "jiangnan-coast");
+    const storm = weatherForRegion(seedForWeather("storm"), 1, "jiangnan-coast");
+    expect(weatherRoadPressure(rain, "mountain")).toMatchObject({ preferredCondition: "muddy", cause: "雨软山径" });
+    expect(weatherRoadPressure(rain, "river")).toMatchObject({ preferredCondition: "flooded", cause: "连雨涨水" });
+    expect(weatherRoadPressure(storm, "river").incidentWeight).toBeGreaterThan(weatherRoadPressure(rain, "river").incidentWeight);
+    expect(weatherRoadPressure(storm, "official").incidentWeight).toBeGreaterThan(weatherRoadPressure(rain, "official").incidentWeight);
   });
 
   it("单段预估使用出发日天候，多段方案按预计抵达日逐段滚动预报", () => {

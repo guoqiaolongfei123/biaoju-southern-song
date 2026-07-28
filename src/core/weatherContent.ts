@@ -1,5 +1,5 @@
 import { cityById } from "./data";
-import type { CityDefinition, RouteDefinition, RouteTerrain } from "./types";
+import type { CityDefinition, RouteCondition, RouteDefinition, RouteTerrain } from "./types";
 
 export type WeatherKind = "clear" | "rain" | "storm" | "fog" | "gale" | "frost" | "heat";
 export type WeatherRegionId = "tibetan-plateau" | "northwest" | "northern-plains" | "sichuan-basin" | "middle-yangtze" | "jiangnan-coast" | "southern-coast";
@@ -36,6 +36,15 @@ export interface RouteWeatherEffect {
 export interface WeatherForecastConfidence {
   label: string;
   tone: "fresh" | "aging" | "rumor";
+}
+
+export interface WeatherRoadPressure {
+  /** Relative chance that this route is selected when a new road incident forms. */
+  incidentWeight: number;
+  /** The persistent road condition most naturally caused by this weather. */
+  preferredCondition: Extract<RouteCondition, "muddy" | "flooded"> | null;
+  cause: string | null;
+  durationModifier: number;
 }
 
 const WEATHER = {
@@ -182,6 +191,27 @@ export function weatherEffectForRoute(weather: RegionalWeather, terrain: RouteTe
     eventChanceModifier: 0.04,
     note: "暑热耗马",
   };
+}
+
+/**
+ * Convert a short weather spell into pressure on the persistent road network.
+ * Travel forecasts already price today's rain into a single segment; this
+ * second layer answers whether several wet days leave a road muddy or a ferry
+ * flooded after the sky clears.
+ */
+export function weatherRoadPressure(weather: RegionalWeather, terrain: RouteTerrain): WeatherRoadPressure {
+  if (weather.kind === "storm") {
+    if (terrain === "river") return { incidentWeight: 10, preferredCondition: "flooded", cause: "急雨涨水", durationModifier: 1 };
+    return { incidentWeight: terrain === "mountain" ? 9 : 7, preferredCondition: "muddy", cause: terrain === "mountain" ? "暴雨冲坡" : "暴雨坏路", durationModifier: 1 };
+  }
+  if (weather.kind === "rain") {
+    if (terrain === "river") return { incidentWeight: 7, preferredCondition: "flooded", cause: "连雨涨水", durationModifier: 1 };
+    return { incidentWeight: terrain === "mountain" ? 6 : 4, preferredCondition: "muddy", cause: terrain === "mountain" ? "雨软山径" : "雨软车辙", durationModifier: 0 };
+  }
+  if (weather.kind === "frost") return { incidentWeight: terrain === "mountain" ? 4 : 2, preferredCondition: null, cause: "霜冻伤路", durationModifier: 0 };
+  if (weather.kind === "gale") return { incidentWeight: terrain === "river" ? 3 : 2, preferredCondition: null, cause: "大风阻路", durationModifier: 0 };
+  if (weather.kind === "fog") return { incidentWeight: 2, preferredCondition: null, cause: null, durationModifier: 0 };
+  return { incidentWeight: 1, preferredCondition: null, cause: null, durationModifier: 0 };
 }
 
 export function weatherForecastConfidence(currentDay: number, forecastDay: number): WeatherForecastConfidence {
