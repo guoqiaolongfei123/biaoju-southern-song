@@ -15,8 +15,11 @@ export interface WeatherMarkerLayout extends WeatherMarkerPoint {
   radius: number;
 }
 
-const MARKER_RADIUS: Record<MapDetail, number> = { wide: 36, mid: 26, close: 18 };
-const SEARCH_RING: Record<MapDetail, number> = { wide: 42, mid: 29, close: 20 };
+// The radius covers the complete cartouche including its long regional label,
+// not just the painted paper shape. This prevents a visually clear weather
+// layer from masking route, border or city seals at close zoom.
+const MARKER_RADIUS: Record<MapDetail, number> = { wide: 42, mid: 34, close: 29 };
+const SEARCH_RING: Record<MapDetail, number> = { wide: 48, mid: 38, close: 32 };
 
 function overlapAmount(x: number, y: number, radius: number, obstacle: MapIconObstacle): number {
   return Math.max(0, radius + obstacle.radius - Math.hypot(x - obstacle.x, y - obstacle.y));
@@ -42,6 +45,8 @@ export function layoutWeatherMarkers(
       [0, 0], [0, -1], [1, 0], [0, 1], [-1, 0],
       [.72, -.72], [.72, .72], [-.72, .72], [-.72, -.72],
       [0, -1.65], [1.65, 0], [0, 1.65], [-1.65, 0],
+      [1.7, -1.7], [1.7, 1.7], [-1.7, 1.7], [-1.7, -1.7],
+      [0, -2.65], [2.65, 0], [0, 2.65], [-2.65, 0],
     ];
     const rotation = rotationFor(point.id);
     const candidates = [directions[0], ...directions.slice(1 + rotation, 9), ...directions.slice(1, 1 + rotation), ...directions.slice(9)];

@@ -26,4 +26,22 @@ describe("route badge layout", () => {
     expect(forward[0].displaced).toBe(true);
     expect(Math.hypot(forward[0].markerX - 80, forward[0].markerY - 60)).toBeGreaterThan(0);
   });
+
+  it("fans candidate route seals around a crowded waypoint instead of stacking them", () => {
+    const radius = 5.4;
+    const layout = layoutRouteBadges([
+      { id: "route-candidate:fast", x: 100, y: 100, radius, priority: 1260 },
+      { id: "route-candidate:steady", x: 103, y: 101, radius, priority: 1219 },
+      { id: "route-candidate:wide", x: 101, y: 104, radius, priority: 1218 },
+    ], [{ id: "city", x: 100, y: 100, radius: 8 }], "close");
+    expect(layout.every((item) => item.displaced)).toBe(true);
+    for (let first = 0; first < layout.length; first += 1) {
+      for (let second = first + 1; second < layout.length; second += 1) {
+        expect(Math.hypot(
+          layout[first].markerX - layout[second].markerX,
+          layout[first].markerY - layout[second].markerY,
+        )).toBeGreaterThanOrEqual(radius * 2);
+      }
+    }
+  });
 });

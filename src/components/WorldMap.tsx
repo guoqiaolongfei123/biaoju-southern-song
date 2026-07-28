@@ -436,11 +436,11 @@ export default function WorldMap({
     ...(game.journey?.plan.cityIds ?? []),
     ...game.deputyDispatches.flatMap((dispatch) => [dispatch.fromCityId, dispatch.toCityId]),
   ]), [game.journey?.plan.id, deputyRouteSignature]);
-  const routeCandidateSignature = routeCandidates.map((candidate) => candidate.id).join("|");
+  const routeCandidateSignature = routeCandidates.map((candidate) => `${candidate.id}:${candidate.routeIds.join(",")}:${candidate.cityIds.join(",")}`).join("|");
   const effectivePreviewId = routeCandidates.some((candidate) => candidate.id === previewRouteId) ? previewRouteId : routeCandidates[0]?.id ?? null;
   const previewCandidateIndex = routeCandidates.findIndex((candidate) => candidate.id === effectivePreviewId);
   const previewCandidate = previewCandidateIndex >= 0 ? routeCandidates[previewCandidateIndex] : null;
-  const candidateCityIds = useMemo(() => new Set(previewCandidate?.cityIds ?? []), [previewCandidate?.id]);
+  const candidateCityIds = useMemo(() => new Set(previewCandidate?.cityIds ?? []), [previewCandidate?.id, routeCandidateSignature]);
   const mapDetail = mapDetailForViewportWidth(viewport.width);
   const zoomPercent = Math.round((VIEW_BOXES.realm.width / viewport.width) * 100);
   const officeCityIds = useMemo(() => Object.keys(game.offices), [game.offices]);
@@ -531,31 +531,48 @@ export default function WorldMap({
   const cityClusterObstacles = useMemo<MapIconObstacle[]>(() => settlementMarkerLayout
     .filter((layout) => layout.id.startsWith("cluster:"))
     .map((layout) => ({ id: layout.id, x: layout.markerX, y: layout.markerY, radius: layout.radius })), [settlementMarkerLayout]);
-  const routeBadgeLayout = useMemo(() => layoutRouteBadges(ROUTES.flatMap((route) => {
-    const curve = routeCurve(route);
-    const knownCondition = game.routeIntel[route.id]?.knownCondition ?? "clear";
-    const badgeRadius = mapDetail === "wide" ? 7.8 : mapDetail === "mid" ? 5.6 : 3.8;
-    const badges: RouteBadgePoint[] = [];
-    if (activeRoutes.has(route.id) || knownCondition !== "clear") {
-      badges.push({ id: `route-state:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius, priority: selectedRouteId === route.id ? 1_200 : activeRoutes.has(route.id) ? 1_080 : 880 });
-    }
-    if (deputyRoutes.has(route.id)) {
-      badges.push({ id: `route-deputy:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius, priority: 1_100 });
-    }
-    if (routeCrossesPoliticalBorder(game.cities, route)) {
-      const split = splitQuadraticCurve({ from: curve.from, to: curve.to, control: { x: curve.mx, y: curve.my } });
-      badges.push({ id: `route-border:${route.id}`, x: split.midpoint.x, y: split.midpoint.y, radius: badgeRadius, priority: 1_040 });
-    } else if (mapLayer === "roads" && knownCondition === "clear" && !activeRoutes.has(route.id) && !deputyRoutes.has(route.id)) {
-      const presentation = roadPresentationById.get(route.id);
-      const showTerrainBadge = selectedRouteId === route.id
-        || presentation?.grade === "arterial"
-        || (mapDetail === "close" && presentation?.grade === "regional");
-      if (showTerrainBadge) {
-        badges.push({ id: `route-kind:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius * .74, priority: selectedRouteId === route.id ? 1_160 : presentation?.grade === "arterial" ? 360 : 180 });
+  const routeBadgeLayout = useMemo(() => {
+    const roadBadges = ROUTES.flatMap((route) => {
+      const curve = routeCurve(route);
+      const knownCondition = game.routeIntel[route.id]?.knownCondition ?? "clear";
+      const badgeRadius = mapDetail === "wide" ? 7.8 : mapDetail === "mid" ? 5.6 : 3.8;
+      const badges: RouteBadgePoint[] = [];
+      if (activeRoutes.has(route.id) || knownCondition !== "clear") {
+        badges.push({ id: `route-state:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius, priority: selectedRouteId === route.id ? 1_200 : activeRoutes.has(route.id) ? 1_080 : 880 });
       }
-    }
-    return badges;
-  }), cityIconObstacles, mapDetail), [game.cities, game.routeIntel, mapDetail, activeRouteSignature, deputyRouteSignature, mapLayer, selectedRouteId, cityIconObstacles]);
+      if (deputyRoutes.has(route.id)) {
+        badges.push({ id: `route-deputy:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius, priority: 1_100 });
+      }
+      if (routeCrossesPoliticalBorder(game.cities, route)) {
+        const split = splitQuadraticCurve({ from: curve.from, to: curve.to, control: { x: curve.mx, y: curve.my } });
+        badges.push({ id: `route-border:${route.id}`, x: split.midpoint.x, y: split.midpoint.y, radius: badgeRadius, priority: 1_040 });
+      } else if (mapLayer === "roads" && knownCondition === "clear" && !activeRoutes.has(route.id) && !deputyRoutes.has(route.id)) {
+        const presentation = roadPresentationById.get(route.id);
+        const showTerrainBadge = selectedRouteId === route.id
+          || presentation?.grade === "arterial"
+          || (mapDetail === "close" && presentation?.grade === "regional");
+        if (showTerrainBadge) {
+          badges.push({ id: `route-kind:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius * .74, priority: selectedRouteId === route.id ? 1_160 : presentation?.grade === "arterial" ? 360 : 180 });
+        }
+      }
+      return badges;
+    });
+    const candidateSealScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .78 : .58;
+    const candidateBadges: RouteBadgePoint[] = routeCandidates.flatMap((candidate, index) => {
+      const anchorRouteId = routeCandidateAnchorRouteId(candidate, routeCandidates);
+      const route = ROUTES.find((item) => item.id === anchorRouteId);
+      if (!route) return [];
+      const curve = routeCurve(route);
+      return [{
+        id: `route-candidate:${candidate.id}`,
+        x: curve.mx,
+        y: curve.my,
+        radius: 7.3 * candidateSealScale + 1.2,
+        priority: candidate.id === effectivePreviewId ? 1_260 : 1_220 - index,
+      }];
+    });
+    return layoutRouteBadges([...roadBadges, ...candidateBadges], cityIconObstacles, mapDetail);
+  }, [game.cities, game.routeIntel, mapDetail, activeRouteSignature, deputyRouteSignature, mapLayer, selectedRouteId, cityIconObstacles, routeCandidateSignature, effectivePreviewId]);
   const routeBadgeById = useMemo(() => new Map(routeBadgeLayout.map((layout) => [layout.id, layout])), [routeBadgeLayout]);
   const routeBadgeObstacles = useMemo<MapIconObstacle[]>(() => routeBadgeLayout.map((layout) => ({
     id: layout.id,
@@ -1293,6 +1310,8 @@ export default function WorldMap({
               const anchorRouteId = routeCandidateAnchorRouteId(candidate, routeCandidates);
               const anchorRoute = ROUTES.find((route) => route.id === anchorRouteId);
               const anchor = anchorRoute ? routeCurve(anchorRoute) : null;
+              const candidateBadge = routeBadgeById.get(`route-candidate:${candidate.id}`);
+              const candidateSealScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .78 : .58;
               return (
                 <g key={candidate.id} className={`route-candidate candidate-tone-${candidateIndex % 3} ${highlighted ? "is-highlighted" : "is-muted"}`}>
                   {candidate.routeIds.map((routeId) => {
@@ -1302,10 +1321,15 @@ export default function WorldMap({
                     return <path key={routeId} className="route-candidate-segment" d={`M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`}><title>{routeCandidateSeal(candidateIndex)}路 · {candidate.label} · {candidate.days}日 · 路险{candidate.dangerLabel} · {candidate.weatherLabel ?? "天候未报"} · {routeCandidateBusinessCaption(candidate)}</title></path>;
                   })}
                   {anchor && (
-                    <g className="route-candidate-seal" transform={`translate(${anchor.mx} ${anchor.my})`} aria-hidden="true">
-                      <circle r="7.3" />
-                      <text y="2.8" textAnchor="middle">{routeCandidateSeal(candidateIndex)}</text>
-                    </g>
+                    <>
+                      {candidateBadge?.displaced && <path className="route-badge-anchor route-candidate-anchor" d={`M ${anchor.mx} ${anchor.my} L ${candidateBadge.markerX} ${candidateBadge.markerY}`} />}
+                      <g className="route-candidate-seal" transform={`translate(${candidateBadge?.markerX ?? anchor.mx} ${candidateBadge?.markerY ?? anchor.my})`} aria-hidden="true">
+                        <g transform={`scale(${candidateSealScale})`}>
+                          <circle r="7.3" />
+                          <text y="2.8" textAnchor="middle">{routeCandidateSeal(candidateIndex)}</text>
+                        </g>
+                      </g>
+                    </>
                   )}
                 </g>
               );

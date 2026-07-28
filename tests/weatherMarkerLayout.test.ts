@@ -18,4 +18,19 @@ describe("weather marker layout", () => {
     expect(layoutWeatherMarkers(points, [], "mid")).toEqual(layoutWeatherMarkers(points, [], "mid"));
     expect(layoutWeatherMarkers(points, [], "mid")[0]).toMatchObject({ markerX: 32, markerY: 16 });
   });
+
+  it("keeps full weather labels clear of route seals and neighbouring weather", () => {
+    const obstacle = { id: "route-candidate", x: 100, y: 100, radius: 6 };
+    const layout = layoutWeatherMarkers([
+      { id: "jiangnan", x: 100, y: 100 },
+      { id: "middle-yangtze", x: 104, y: 102 },
+    ], [obstacle], "close");
+    for (const item of layout) {
+      expect(Math.hypot(item.markerX - obstacle.x, item.markerY - obstacle.y)).toBeGreaterThanOrEqual(item.radius + obstacle.radius);
+    }
+    expect(Math.hypot(
+      layout[0].markerX - layout[1].markerX,
+      layout[0].markerY - layout[1].markerY,
+    )).toBeGreaterThanOrEqual(layout[0].radius + layout[1].radius);
+  });
 });

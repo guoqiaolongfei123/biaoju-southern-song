@@ -57,10 +57,15 @@ function overlaps(a: Box, b: Box, padding = 1.2): boolean {
   return a.left < b.right + padding && a.right > b.left - padding && a.top < b.bottom + padding && a.bottom > b.top - padding;
 }
 
+function estimatedLabelWidth(city: CityDefinition, detail: MapDetail): number {
+  const font = FONT_SIZE[detail][city.tier];
+  return Math.max(font * 1.7, city.name.length * font * 1.22) + 5;
+}
+
 export function cityLabelBounds(city: CityDefinition, layout: Pick<CityLabelLayout, "x" | "y" | "anchor">, detail: MapDetail): Box {
   const font = FONT_SIZE[detail][city.tier];
   // 古风中文字体带有额外字面与字距，碰撞框需略宽于理论 em，避免屏幕上边缘相压。
-  const width = Math.max(font * 1.7, city.name.length * font * 1.16) + 4;
+  const width = estimatedLabelWidth(city, detail);
   const left = layout.anchor === "start" ? city.x + layout.x : layout.anchor === "end" ? city.x + layout.x - width : city.x + layout.x - width / 2;
   return { left, right: left + width, top: city.y + layout.y - font * .92, bottom: city.y + layout.y + font * .34 };
 }
@@ -95,8 +100,28 @@ function candidateOffsets(city: CityDefinition, detail: MapDetail) {
     { x: farHorizontal, y: -farVertical * .5, anchor: "start", leader: true },
     { x: -farHorizontal, y: -farVertical * .5, anchor: "end", leader: true },
   ];
+  // A third ring is reserved for mandatory route, office and current-city
+  // labels in dense corridors. A longer ink leader is easier to read than two
+  // historical place names merged into one word.
+  const labelWidth = estimatedLabelWidth(city, detail);
+  const outerHorizontal = horizontal + labelWidth * 1.08;
+  const outerVertical = farVertical + font * 2.5;
+  const outer: Array<Omit<CityLabelLayout, "visible">> = [
+    { x: outerHorizontal, y: font * .28, anchor: "start", leader: true },
+    { x: -outerHorizontal, y: font * .28, anchor: "end", leader: true },
+    { x: 0, y: outerVertical, anchor: "middle", leader: true },
+    { x: 0, y: -outerVertical + font * .2, anchor: "middle", leader: true },
+    { x: outerHorizontal, y: outerVertical * .58, anchor: "start", leader: true },
+    { x: -outerHorizontal, y: outerVertical * .58, anchor: "end", leader: true },
+    { x: outerHorizontal, y: -outerVertical * .54, anchor: "start", leader: true },
+    { x: -outerHorizontal, y: -outerVertical * .54, anchor: "end", leader: true },
+  ];
   const rotation = city.id.split("").reduce((sum, char) => sum + char.charCodeAt(0), 0) % near.length;
-  return [...near.slice(rotation), ...near.slice(0, rotation), ...far.slice(rotation), ...far.slice(0, rotation)];
+  return [
+    ...near.slice(rotation), ...near.slice(0, rotation),
+    ...far.slice(rotation), ...far.slice(0, rotation),
+    ...outer.slice(rotation), ...outer.slice(0, rotation),
+  ];
 }
 
 function priority(city: CityDefinition, pinned: Set<string>): number {

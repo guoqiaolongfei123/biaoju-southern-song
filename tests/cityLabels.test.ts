@@ -64,4 +64,31 @@ describe("city label decluttering", () => {
     expect(layout.current.visible).toBe(true);
     expect(overlaps(label, obstacle)).toBe(false);
   });
+
+  it("uses long leader positions for a dense close-view itinerary", () => {
+    const cities = [
+      city("linan", "临安府", 100, 100),
+      city("shaoxing", "绍兴府", 105, 99),
+      city("qingyuan", "庆元府", 109, 104),
+      city("taizhou", "台州", 103, 108),
+      city("jiaxing", "嘉兴府", 97, 105),
+      city("huzhou", "湖州", 101, 102),
+      city("pingjiang", "平江府", 106, 106),
+      city("zhenjiang", "镇江府", 99, 107),
+    ];
+    const layout = layoutCityLabels(
+      cities,
+      { x: 35, y: 35, width: 150, height: 140 },
+      "close",
+      new Set(cities.map((item) => item.id)),
+    );
+    expect(cities.every((item) => layout[item.id].visible)).toBe(true);
+    const boxes = cities.map((item) => cityLabelBounds(item, layout[item.id], "close"));
+    for (let first = 0; first < boxes.length; first += 1) {
+      for (let second = first + 1; second < boxes.length; second += 1) {
+        expect(overlaps(boxes[first], boxes[second])).toBe(false);
+      }
+    }
+    expect(cities.some((item) => Math.abs(layout[item.id].x) > 30 || Math.abs(layout[item.id].y) > 30)).toBe(true);
+  });
 });
