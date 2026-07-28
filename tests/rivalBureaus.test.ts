@@ -91,7 +91,7 @@ describe("天下同行镖局", () => {
     delete old.rivalBureaus;
     old.worldActors = current.worldActors.filter((actor) => actor.kind !== "rival");
     const migrated = migrateSavedGame(old)!;
-    expect(migrated.version).toBe(24);
+    expect(migrated.version).toBe(25);
     expect(migrated.rivalBureaus).toHaveLength(3);
     expect(migrated.worldActors.filter((actor) => actor.kind === "rival")).toHaveLength(3);
   });

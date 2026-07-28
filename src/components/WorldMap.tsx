@@ -38,6 +38,7 @@ interface WorldMapProps {
   game: GameState;
   selectedCityId: string;
   activeRouteIds?: string[];
+  deputyRouteIds?: string[];
   routeCandidates?: MapRouteCandidate[];
   previewRouteId?: string | null;
   onPreviewRoute?: (routeId: string) => void;
@@ -353,6 +354,7 @@ export default function WorldMap({
   game,
   selectedCityId,
   activeRouteIds = [],
+  deputyRouteIds = [],
   routeCandidates = [],
   previewRouteId = null,
   onPreviewRoute,
@@ -379,6 +381,8 @@ export default function WorldMap({
   } | null>(null);
   const activeRoutes = new Set(activeRouteIds);
   const activeRouteSignature = activeRouteIds.join("|");
+  const deputyRoutes = new Set(deputyRouteIds);
+  const deputyRouteSignature = deputyRouteIds.join("|");
   const selectedCity = CITIES.find((city) => city.id === selectedCityId);
   const currentCity = CITIES.find((city) => city.id === game.currentCityId);
   const selectedWeather = selectedCity ? weatherForCity(game.seed, game.day, selectedCity) : null;
@@ -404,7 +408,10 @@ export default function WorldMap({
       .sort((a, b) => b.severity - a.severity || a.region.id.localeCompare(b.region.id))
       .slice(0, 3);
   }, [regionalWeather, mapLayer]);
-  const activeCityIds = useMemo(() => new Set(game.journey?.plan.cityIds ?? []), [game.journey?.plan.id]);
+  const activeCityIds = useMemo(() => new Set([
+    ...(game.journey?.plan.cityIds ?? []),
+    ...game.deputyDispatches.flatMap((dispatch) => [dispatch.fromCityId, dispatch.toCityId]),
+  ]), [game.journey?.plan.id, deputyRouteSignature]);
   const routeCandidateSignature = routeCandidates.map((candidate) => candidate.id).join("|");
   const effectivePreviewId = routeCandidates.some((candidate) => candidate.id === previewRouteId) ? previewRouteId : routeCandidates[0]?.id ?? null;
   const previewCandidateIndex = routeCandidates.findIndex((candidate) => candidate.id === effectivePreviewId);
@@ -505,17 +512,17 @@ export default function WorldMap({
     const knownCondition = game.routeIntel[route.id]?.knownCondition ?? "clear";
     const badgeRadius = mapDetail === "wide" ? 7.8 : mapDetail === "mid" ? 5.6 : 3.8;
     const badges: MapIconObstacle[] = [];
-    if (activeRoutes.has(route.id) || knownCondition !== "clear") {
+    if (activeRoutes.has(route.id) || deputyRoutes.has(route.id) || knownCondition !== "clear") {
       badges.push({ id: `route-state:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius });
     }
     if (routeCrossesPoliticalBorder(game.cities, route)) {
       const split = splitQuadraticCurve({ from: curve.from, to: curve.to, control: { x: curve.mx, y: curve.my } });
       badges.push({ id: `route-border:${route.id}`, x: split.midpoint.x, y: split.midpoint.y, radius: badgeRadius });
-    } else if (mapLayer === "roads" && knownCondition === "clear" && !activeRoutes.has(route.id)) {
+    } else if (mapLayer === "roads" && knownCondition === "clear" && !activeRoutes.has(route.id) && !deputyRoutes.has(route.id)) {
       badges.push({ id: `route-kind:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius * .74 });
     }
     return badges;
-  }), [game.cities, game.routeIntel, mapDetail, activeRouteSignature, mapLayer]);
+  }), [game.cities, game.routeIntel, mapDetail, activeRouteSignature, deputyRouteSignature, mapLayer]);
   const captivityMarkerAnchors = useMemo(() => {
     const groups = new Map<string, Array<{ id: string; name: string; captor: string }>>();
     for (const member of game.crew) {
@@ -559,8 +566,9 @@ export default function WorldMap({
   })), [captivityMarkers]);
   const pinnedLandmarkRouteIds = useMemo(() => new Set([
     ...activeRouteIds,
+    ...deputyRouteIds,
     ...(previewCandidate?.routeIds ?? []),
-  ]), [activeRouteSignature, previewCandidate?.id]);
+  ]), [activeRouteSignature, deputyRouteSignature, previewCandidate?.id]);
   const visibleLandmarks = useMemo(() => ROUTE_LANDMARKS.filter((landmark) => {
     if (pinnedLandmarkRouteIds.has(landmark.routeId)) return true;
     if (mapLayer === "weather") return false;
@@ -1057,6 +1065,7 @@ export default function WorldMap({
             const { from, to, mx, my } = routeCurve(route);
             const path = `M ${from.x} ${from.y} Q ${mx} ${my} ${to.x} ${to.y}`;
             const active = activeRoutes.has(route.id);
+            const deputyActive = deputyRoutes.has(route.id);
             const intelAge = Math.max(0, game.day - (game.routeIntel[route.id]?.surveyedDay ?? -99));
             const intelClass = intelAge <= 2 ? "intel-fresh" : intelAge <= 6 ? "intel-aging" : "intel-rumor";
             const knownCondition = game.routeIntel[route.id]?.knownCondition ?? "clear";
@@ -1064,27 +1073,33 @@ export default function WorldMap({
             const routeWeather = weatherForRoute(game.seed, game.day, route);
             const borderRoute = routeCrossesPoliticalBorder(game.cities, route);
             const routeSealScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .7 : .48;
+            const deputySealScale = mapDetail === "wide" ? 1.15 : mapDetail === "mid" ? .95 : .72;
+            const routeLength = Math.max(1, Math.hypot(to.x - from.x, to.y - from.y));
+            const deputySealOffset = mapDetail === "wide" ? 18 : mapDetail === "mid" ? 14 : 10;
+            const deputySealX = mx - (to.y - from.y) / routeLength * deputySealOffset;
+            const deputySealY = my + (to.x - from.x) / routeLength * deputySealOffset;
             return (
               <g
                 key={route.id}
-                className={`route route-${route.terrain} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} road-tone-${roadInfluenceSnapshot(route.id, game.routeStates[route.id], game.day).tone} ${intelClass} ${active ? "is-active" : ""} ${hoveredRouteId === route.id ? "is-hovered" : ""} ${selectedRouteId === route.id ? "is-inspected" : ""}`}
+                className={`route route-${route.terrain} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} road-tone-${roadInfluenceSnapshot(route.id, game.routeStates[route.id], game.day).tone} ${intelClass} ${active ? "is-active" : ""} ${deputyActive ? "is-deputy-dispatch" : ""} ${hoveredRouteId === route.id ? "is-hovered" : ""} ${selectedRouteId === route.id ? "is-inspected" : ""}`}
                 aria-hidden="true"
               >
                 <path className="route-hit" d={path} />
                 <path className="route-shadow" d={path} />
                 <path className="route-casing" d={path} />
                 <path className="route-bed" d={path} />
-                <path className="route-line" d={path} stroke={active ? "#e0b85d" : terrainColor[route.terrain]} />
+                <path className="route-line" d={path} stroke={active ? "#e0b85d" : deputyActive ? "#4f8f82" : terrainColor[route.terrain]} />
                 <path className="route-pattern" d={path} />
                 <path className="route-weather-trace" d={path} />
                 {active && knownCondition === "clear" && <g className={`route-active-seal terrain-${route.terrain}`} transform={`translate(${mx} ${my})`}><g transform={`scale(${routeSealScale})`}><circle r="5.2" /><text y="2" textAnchor="middle">{terrainSeal[route.terrain]}</text></g></g>}
+                {deputyActive && <><path className="route-deputy-anchor" d={`M ${mx} ${my} L ${deputySealX} ${deputySealY}`} /><g className="route-deputy-seal" transform={`translate(${deputySealX} ${deputySealY})`}><g transform={`scale(${deputySealScale})`}><circle r="5.5" /><text y="2" textAnchor="middle">副</text></g></g></>}
                 {knownCondition !== "clear" && <g className={`route-condition-seal condition-${knownCondition} ${intelAge > 2 ? "is-stale" : ""}`} transform={`translate(${mx} ${my})`}><g transform={`scale(${routeSealScale})`}><circle r="5" /><text y="2" textAnchor="middle">{conditionEffect.seal}</text></g></g>}
-                {mapLayer === "roads" && knownCondition === "clear" && !active && !borderRoute && (
+                {mapLayer === "roads" && knownCondition === "clear" && !active && !deputyActive && !borderRoute && (
                   <g className={`route-terrain-seal terrain-${route.terrain}`} transform={`translate(${mx} ${my})`} aria-hidden="true">
                     <g transform={`scale(${routeSealScale})`}><circle r="4.2" /><text y="1.7" textAnchor="middle">{terrainSeal[route.terrain]}</text></g>
                   </g>
                 )}
-                <title>{route.name} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {routeWeather.seal}·{routeWeather.label} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
+                <title>{route.name} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {routeWeather.seal}·{routeWeather.label}{deputyActive ? " · 副队短镖在途" : ""} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
               </g>
             );
           })}
@@ -1453,6 +1468,7 @@ export default function WorldMap({
         <span><i className="legend-traveler army" />行营</span>
         <span><i className="legend-traveler rival" />同行镖队</span>
         <span><i className="legend-current-city">镖</i>镖队所在</span>
+        {deputyRoutes.size > 0 && <span><i className="legend-deputy-route">副</i>副队短镖</span>}
         <span><i className="legend-border-route">界</i>异旗边路</span>
         {captivityMarkers.length > 0 && <span><i className="legend-captivity">俘</i>队员失陷</span>}
         <span><i className="legend-weather">雨</i>区域天候</span>

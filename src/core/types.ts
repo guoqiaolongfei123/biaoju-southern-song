@@ -127,6 +127,38 @@ export interface LocalContact {
   lastNote: string;
 }
 
+export type DeputyDispatchOutcome = "success" | "hard-won" | "failed";
+
+/** A reserve escort led by a deputy while the player-controlled main convoy continues elsewhere. */
+export interface DeputyDispatch {
+  id: string;
+  title: string;
+  routeId: string;
+  fromCityId: string;
+  toCityId: string;
+  crewIds: string[];
+  startedDay: number;
+  returnsDay: number;
+  danger: number;
+  successChance: number;
+  successReward: number;
+  wageCost: number;
+  resolutionRoll: number;
+}
+
+export interface DeputyDispatchReport {
+  id: string;
+  title: string;
+  routeId: string;
+  fromCityId: string;
+  toCityId: string;
+  crewIds: string[];
+  resolvedDay: number;
+  outcome: DeputyDispatchOutcome;
+  silverChange: number;
+  summary: string;
+}
+
 export interface RoutePlan {
   id: string;
   routeIds: string[];
@@ -485,7 +517,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 24;
+  version: 25;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;
@@ -510,6 +542,8 @@ export interface GameState {
   offices: Record<string, OfficeState>;
   contracts: Contract[];
   contacts: LocalContact[];
+  deputyDispatches: DeputyDispatch[];
+  deputyDispatchReports: DeputyDispatchReport[];
   convoy: ConvoyState;
   martialArtId: MartialArtId;
   leader: LeaderProgression;

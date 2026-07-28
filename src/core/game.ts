@@ -58,7 +58,7 @@ import { EQUIPMENT, MAX_EQUIPMENT_TUNING, createInitialCrewEquipment, createInit
 import { LEGACY_BOONS, legacyStartingModifiers } from "./legacyContent";
 import { CREW_DISCIPLINES, crewDisciplineById } from "./crewDisciplineContent";
 import { crewMasteryForRole } from "./crewMasteryContent";
-import { crewInjuryById, mergeCrewInjury, recoverCrewInjury } from "./injuryContent";
+import { crewInjuryById, injuryForBattleDamage, mergeCrewInjury, recoverCrewInjury } from "./injuryContent";
 import { captivityRansomFor, captivityReleaseOffer } from "./captivityContent";
 import { baseBanditPressure, normalizeRouteInfluence, roadInfluenceSnapshot, roadPowerForRoute, updateRouteInfluence } from "./roadPowerContent";
 import { FORMATION_PROFICIENCIES, createFormationExperience, formationExperienceAwards, formationProficiencyRank, normalizeFormationExperience } from "./formationProficiency";
@@ -99,6 +99,9 @@ import type {
   CrewMember,
   CrewDisciplineId,
   CrewRole,
+  DeputyDispatch,
+  DeputyDispatchOutcome,
+  DeputyDispatchReport,
   EquipmentId,
   EquipmentSlot,
   EventChoice,
@@ -988,7 +991,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 24,
+    version: 25,
     seed,
     originId,
     legacyId,
@@ -1013,6 +1016,8 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
     offices: createInitialOffices(cities, headquartersCityId),
     contracts: generated.contracts,
     contacts,
+    deputyDispatches: [],
+    deputyDispatchReports: [],
     convoy: { leaderHp: 100, guardsFit: 3, cartHp: 100, cargoIntegrity: 100, sealIntact: true, morale: Math.min(100, origin.morale + legacy.morale), ...DEFAULT_CONVOY_EQUIPMENT, wagonId: origin.wagonId, horseTeamId: origin.horseTeamId, upgrades: [...origin.upgrades] },
     martialArtId: DEFAULT_MARTIAL_ART,
     leader: createInitialLeader(),
@@ -1478,7 +1483,7 @@ export function setCoreCombatFocus(game: GameState, coreCombatFocusId: CoreComba
 export function toggleJourneyCrew(game: GameState, memberId: string): GameState {
   if (game.phase !== "planning" || !game.journey) return game;
   const member = game.crew.find((item) => item.id === memberId);
-  if (!member || member.hp < 20 || member.captivity) return game;
+  if (!member || member.hp < 20 || member.captivity || crewIsOnDeputyDispatch(game, memberId)) return game;
   const selected = game.activeCrewIds.includes(memberId);
   if (!selected && game.activeCrewIds.length >= 3) return game;
   const activeCrewIds = selected
@@ -1491,7 +1496,7 @@ export function chooseRoute(game: GameState, plan: RoutePlan): GameState {
   if (game.phase !== "planning" || !game.journey || game.activeCrewIds.length !== 3) return game;
   const ready = game.activeCrewIds.every((id) => {
     const member = game.crew.find((candidate) => candidate.id === id);
-    return Boolean(member && !member.captivity && member.hp >= 20);
+    return Boolean(member && !member.captivity && !crewIsOnDeputyDispatch(game, id) && member.hp >= 20);
   });
   if (!ready) return game;
   const cover = travelCoverById(game.journey.coverId);
@@ -1614,6 +1619,225 @@ export function establishOffice(game: GameState): GameState {
     next = { ...next, contracts: generated.contracts, rngState: generated.rngState };
   }
   return next;
+}
+
+export interface DeputyDispatchOffer {
+  routeId: string;
+  routeName: string;
+  fromCityId: string;
+  toCityId: string;
+  title: string;
+  crewIds: string[];
+  days: number;
+  danger: number;
+  risk: Contract["risk"];
+  successChance: number;
+  successReward: number;
+  wageCost: number;
+  roleNote: string;
+}
+
+export interface DeputyDispatchBoard {
+  available: boolean;
+  reason: string | null;
+  offers: DeputyDispatchOffer[];
+}
+
+export function deputyDispatchCrewIds(game: Pick<GameState, "deputyDispatches">): Set<string> {
+  return new Set((game.deputyDispatches ?? []).flatMap((dispatch) => dispatch.crewIds));
+}
+
+export function crewIsOnDeputyDispatch(game: Pick<GameState, "deputyDispatches">, crewId: string): boolean {
+  return deputyDispatchCrewIds(game).has(crewId);
+}
+
+function deputyDispatchRoleFit(route: ReturnType<typeof routeById>, member: CrewMember): number {
+  let score = crewRank(member.experience).level * 3 + member.hp / 25;
+  if (member.role === "趟子手") score += 5;
+  if (member.role === "医师") score += 4;
+  if (route.terrain === "mountain" && member.role === "向导") score += 10;
+  if (route.terrain === "river" && member.role === "车把式") score += 8;
+  if (route.terrain === "official" && member.role === "账房") score += 6;
+  return score;
+}
+
+function deputyDispatchTeam(game: GameState, routeId: string): CrewMember[] {
+  const busy = deputyDispatchCrewIds(game);
+  const route = routeById(routeId);
+  const available = game.crew.filter((member) => !busy.has(member.id) && !member.captivity && !member.injury && member.hp >= 45);
+  const deputy = available
+    .filter((member) => member.role === "副镖头")
+    .sort((left, right) => Number(game.activeCrewIds.includes(left.id)) - Number(game.activeCrewIds.includes(right.id)) || right.experience - left.experience || right.hp - left.hp)[0];
+  if (!deputy) return [];
+  const supports = available
+    .filter((member) => member.id !== deputy.id)
+    .sort((left, right) => Number(game.activeCrewIds.includes(left.id)) - Number(game.activeCrewIds.includes(right.id)) || deputyDispatchRoleFit(route, right) - deputyDispatchRoleFit(route, left) || left.id.localeCompare(right.id))
+    .slice(0, 2);
+  return supports.length === 2 ? [deputy, ...supports] : [];
+}
+
+function deputyDispatchTitle(route: ReturnType<typeof routeById>, destinationName: string): string {
+  if (route.terrain === "river") return `护送行栈舟货至${destinationName}`;
+  if (route.terrain === "mountain") return `押送山货短镖至${destinationName}`;
+  return `递送牙行平码至${destinationName}`;
+}
+
+/**
+ * Builds a small, exact side-contract board from real adjacent roads. The
+ * reserve team is chosen up front and shown to the player; no hidden roster
+ * substitution happens after the dispatch seal is pressed.
+ */
+export function deputyDispatchBoard(game: GameState): DeputyDispatchBoard {
+  if (game.phase !== "map") return { available: false, reason: "主队须在城中才能分旗点将", offers: [] };
+  const office = officeAt(game);
+  if (!office?.active || office.tier === "outpost") return { available: false, reason: "须有总号或分号承接短镖、照看回程", offers: [] };
+  if ((game.deputyDispatches ?? []).length > 0) return { available: false, reason: "已有一支副队在外，归旗后方可再派", offers: [] };
+  const busy = deputyDispatchCrewIds(game);
+  const fitCrew = game.crew.filter((member) => !busy.has(member.id) && !member.captivity && !member.injury && member.hp >= 45);
+  if (fitCrew.length < 6) return { available: false, reason: `需六名可出镖人手，现有 ${fitCrew.length} 名；分队三人后仍须给主队留足三人`, offers: [] };
+  if (!fitCrew.some((member) => member.role === "副镖头")) return { available: false, reason: "没有可领队的副镖头", offers: [] };
+
+  const routes = ROUTES
+    .filter((route) => (route.from === game.currentCityId || route.to === game.currentCityId) && routeIsPassable(effectiveRouteCondition(game.routeStates[route.id], game.day)))
+    .sort((left, right) => left.days - right.days || currentRouteDanger(game, left.id) - currentRouteDanger(game, right.id) || left.id.localeCompare(right.id))
+    .slice(0, 3);
+  const offers = routes.flatMap((route) => {
+    const team = deputyDispatchTeam(game, route.id);
+    if (team.length !== 3) return [];
+    const toCityId = otherCity(route, game.currentCityId);
+    const danger = currentRouteDanger(game, route.id);
+    const border = game.cities[game.currentCityId].owner !== game.cities[toCityId].owner;
+    const rankBonus = team.reduce((sum, member) => sum + crewRank(member.experience).level * 3, 0);
+    const routeFit = team.reduce((sum, member) => sum + Math.max(0, deputyDispatchRoleFit(route, member) - crewRank(member.experience).level * 3 - member.hp / 25), 0);
+    const successChance = Math.max(38, Math.min(92, Math.round(88 - danger * .58 - (border ? 8 : 0) + rankBonus + routeFit * .45)));
+    const wageCost = team.reduce((sum, member) => sum + member.wage, 0);
+    const localStandingBonus = Math.max(0, Math.floor((game.cityReputation[game.currentCityId] ?? 0) / 10));
+    const grossReward = Math.round(24 + route.days * 11 + danger * .32 + localStandingBonus);
+    const roleNames = team.slice(1).map((member) => member.role).join("、");
+    return [{
+      routeId: route.id,
+      routeName: route.name,
+      fromCityId: game.currentCityId,
+      toCityId,
+      title: deputyDispatchTitle(route, cityById(toCityId).name),
+      crewIds: team.map((member) => member.id),
+      days: Math.max(3, route.days * 2),
+      danger,
+      risk: riskLabel(danger),
+      successChance,
+      successReward: Math.max(8, grossReward - wageCost),
+      wageCost,
+      roleNote: `${team[0].name}领旗，${roleNames}随行`,
+    } satisfies DeputyDispatchOffer];
+  });
+  return offers.length
+    ? { available: true, reason: null, offers }
+    : { available: false, reason: "相邻道路暂时都不能通行", offers: [] };
+}
+
+export function startDeputyDispatch(game: GameState, routeId: string): GameState {
+  const board = deputyDispatchBoard(game);
+  const offer = board.available ? board.offers.find((item) => item.routeId === routeId) : undefined;
+  if (!offer) return game;
+  const resolution = randomStep(game.rngState);
+  const dispatch: DeputyDispatch = {
+    id: `deputy-${game.day}-${routeId}-${Math.abs(resolution.state)}`,
+    title: offer.title,
+    routeId,
+    fromCityId: offer.fromCityId,
+    toCityId: offer.toCityId,
+    crewIds: [...offer.crewIds],
+    startedDay: game.day,
+    returnsDay: game.day + offer.days,
+    danger: offer.danger,
+    successChance: offer.successChance,
+    successReward: offer.successReward,
+    wageCost: offer.wageCost,
+    resolutionRoll: resolution.value,
+  };
+  const deputy = game.crew.find((member) => member.id === offer.crewIds[0])!;
+  return {
+    ...game,
+    rngState: resolution.state,
+    activeCrewIds: game.activeCrewIds.filter((id) => !offer.crewIds.includes(id)),
+    deputyDispatches: [dispatch],
+    news: [`【副旗出城】${deputy.name}率副队走${offer.routeName}，承办「${offer.title}」；预计第 ${dispatch.returnsDay} 日归旗。`, ...game.news].slice(0, 6),
+  };
+}
+
+function settleDeputyDispatches(game: GameState): GameState {
+  const due = (game.deputyDispatches ?? []).filter((dispatch) => dispatch.returnsDay <= game.day);
+  if (!due.length) return game;
+  let next = game;
+  for (const dispatch of due.sort((left, right) => left.returnsDay - right.returnsDay || left.id.localeCompare(right.id))) {
+    const threshold = dispatch.successChance / 100;
+    const outcome: DeputyDispatchOutcome = dispatch.resolutionRoll < threshold ? "success" : dispatch.resolutionRoll < Math.min(.98, threshold + .2) ? "hard-won" : "failed";
+    const nominalSilver = outcome === "success" ? dispatch.successReward : outcome === "hard-won" ? Math.max(0, Math.round(dispatch.successReward * .45)) : -dispatch.wageCost;
+    const silver = Math.max(0, next.silver + nominalSilver);
+    const silverChange = silver - next.silver;
+    const dispatchedMembers = dispatch.crewIds.map((id) => next.crew.find((member) => member.id === id)).filter((member): member is CrewMember => Boolean(member));
+    const medicPresent = dispatchedMembers.some((member) => member.role === "医师");
+    const baseDamage = outcome === "success" ? Math.max(0, Math.round((dispatch.danger - 58) / 6)) : outcome === "hard-won" ? 10 + Math.round(dispatch.danger * .12) : 22 + Math.round(dispatch.danger * .18);
+    const daysSinceReturn = Math.max(0, game.day - dispatch.returnsDay);
+    const damagedNames: string[] = [];
+    const crew = next.crew.map((member) => {
+      const index = dispatch.crewIds.indexOf(member.id);
+      if (index < 0) return member;
+      const damage = Math.max(0, baseDamage + index * 2 - (medicPresent ? 5 : 0));
+      const experienceGain = outcome === "success" ? (index === 0 ? 2 : 1) : outcome === "hard-won" || index === 0 ? 1 : 0;
+      if (damage > 0) damagedNames.push(member.name);
+      const injuryId = injuryForBattleDamage(damage, dispatch.id.length * 131 + dispatch.returnsDay, member.id);
+      const mergedInjury = injuryId ? mergeCrewInjury(member.injury, injuryId, dispatch.returnsDay) : member.injury;
+      return {
+        ...member,
+        hp: Math.max(1, member.hp - damage),
+        experience: member.experience + experienceGain,
+        injury: daysSinceReturn > 0 ? recoverCrewInjury(mergedInjury, daysSinceReturn) : mergedInjury,
+      };
+    });
+    const standingDelta = outcome === "success" ? 3 : outcome === "hard-won" ? 1 : -2;
+    const cityReputation = changeCityReputation(next.cityReputation, dispatch.toCityId, standingDelta);
+    const routeIntel = {
+      ...next.routeIntel,
+      [dispatch.routeId]: {
+        ...(next.routeIntel[dispatch.routeId] ?? { surveyedDay: game.day, knownDanger: dispatch.danger, trips: 0, knownCondition: "clear" as const }),
+        surveyedDay: dispatch.returnsDay,
+        knownDanger: currentRouteDanger(next, dispatch.routeId),
+        knownCondition: effectiveRouteCondition(next.routeStates[dispatch.routeId], dispatch.returnsDay),
+        trips: (next.routeIntel[dispatch.routeId]?.trips ?? 0) + 1,
+      },
+    };
+    const deputyName = dispatchedMembers[0]?.name ?? "副镖头";
+    const outcomeLabel = outcome === "success" ? "稳稳成镖" : outcome === "hard-won" ? "带伤守约" : "折旗而返";
+    const summary = outcome === "success"
+      ? `${deputyName}把短镖完整送达，又沿原路带回新路报。`
+      : outcome === "hard-won"
+        ? `${deputyName}虽在路上遇险，仍勉强交清镖物${damagedNames.length ? `；${damagedNames.join("、")}带伤归队` : ""}。`
+        : `${deputyName}判断再战只会折人，弃下短镖收队${damagedNames.length ? `；${damagedNames.join("、")}受创` : ""}。`;
+    const report: DeputyDispatchReport = {
+      id: dispatch.id,
+      title: dispatch.title,
+      routeId: dispatch.routeId,
+      fromCityId: dispatch.fromCityId,
+      toCityId: dispatch.toCityId,
+      crewIds: [...dispatch.crewIds],
+      resolvedDay: dispatch.returnsDay,
+      outcome,
+      silverChange,
+      summary,
+    };
+    next = {
+      ...next,
+      silver,
+      crew,
+      cityReputation,
+      routeIntel,
+      deputyDispatchReports: [report, ...(next.deputyDispatchReports ?? [])].slice(0, 4),
+      news: [`【副旗归报·${outcomeLabel}】${summary}${silverChange ? ` 银钱 ${silverChange > 0 ? "+" : ""}${silverChange} 两。` : ""}`, ...next.news].slice(0, 6),
+    };
+  }
+  const dueIds = new Set(due.map((dispatch) => dispatch.id));
+  return { ...next, deputyDispatches: (next.deputyDispatches ?? []).filter((dispatch) => !dueIds.has(dispatch.id)) };
 }
 
 export function routeInvestigationCost(game: GameState): number {
@@ -1833,6 +2057,7 @@ function withWorldAdvance(game: GameState, days: number): GameState {
   const leader = leaderInjury === next.leader.injury ? next.leader : { ...next.leader, injury: leaderInjury };
   if (recoveredNames.length) next = { ...next, leader, crew, news: [`【伤势渐平】${recoveredNames.join("、")}经过休养已经不再受旧伤妨碍。`, ...next.news].slice(0, 6) };
   else if (leader !== next.leader || crew.some((member, index) => member !== next.crew[index])) next = { ...next, leader, crew };
+  next = settleDeputyDispatches(next);
   const offices = { ...next.offices };
   for (const [cityId, office] of Object.entries(offices)) {
     if (!office.active || office.ownerAtOpening === cities[cityId].owner || office.tier === "headquarters") continue;
@@ -3812,7 +4037,8 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
     news: [`【马院歇养】${HORSE_TEAMS[game.convoy.horseTeamId].name}已经饮水、刷洗并重新钉掌。`, ...game.news].slice(0, 6),
   };
   if (service === "heal" && game.silver >= cost) {
-    const hasDoctor = game.crew.some((member) => member.role === "医师" && member.hp > 0 && !member.captivity);
+    const dispatchedCrew = deputyDispatchCrewIds(game);
+    const hasDoctor = game.crew.some((member) => member.role === "医师" && member.hp > 0 && !member.captivity && !dispatchedCrew.has(member.id));
     const treatmentDays = hasDoctor ? 4 : 3;
     const treated: string[] = [];
     const recovered: string[] = [];
@@ -3823,7 +4049,7 @@ export function purchaseService(game: GameState, service: ServiceType): GameStat
     }
     const leader = leaderInjury === game.leader.injury ? game.leader : { ...game.leader, injury: leaderInjury };
     const crew = game.crew.map((member) => {
-      if (member.captivity) return member;
+      if (member.captivity || dispatchedCrew.has(member.id)) return member;
       const injury = recoverCrewInjury(member.injury, treatmentDays);
       if (member.injury) {
         treated.push(member.name);
@@ -3984,7 +4210,7 @@ export function equipCrewItem(game: GameState, crewId: string, equipmentId: Equi
   if (game.phase !== "map" || !(equipmentId in EQUIPMENT)) return game;
   const member = game.crew.find((item) => item.id === crewId);
   const isLeader = crewId === PLAYER_LEADER_ID;
-  if (!isLeader && member?.captivity) return game;
+  if (!isLeader && (member?.captivity || crewIsOnDeputyDispatch(game, crewId))) return game;
   const item = EQUIPMENT[equipmentId];
   const experience = isLeader ? game.leader.experience : member?.experience;
   if (experience === undefined || crewRank(experience).level < item.requiredRank) return game;
@@ -4000,7 +4226,7 @@ export function equipCrewItem(game: GameState, crewId: string, equipmentId: Equi
 
 export function unequipCrewItem(game: GameState, crewId: string, slot: EquipmentSlot): GameState {
   if (game.phase !== "map") return game;
-  if (game.crew.find((member) => member.id === crewId)?.captivity) return game;
+  if (game.crew.find((member) => member.id === crewId)?.captivity || crewIsOnDeputyDispatch(game, crewId)) return game;
   const current = game.crewEquipment[crewId];
   if (!current?.[slot]) return game;
   const next = { ...current };
@@ -4020,7 +4246,7 @@ export function trainCrew(game: GameState, crewId: string): GameState {
   const member = game.crew.find((item) => item.id === crewId);
   const cost = crewTrainingCost(game, crewId);
   const isLeader = crewId === PLAYER_LEADER_ID;
-  if (!isLeader && member?.captivity) return game;
+  if (!isLeader && (member?.captivity || crewIsOnDeputyDispatch(game, crewId))) return game;
   if ((!member && !isLeader) || cost <= 0 || game.silver < cost) return game;
   if (isLeader) return {
     ...game,
@@ -4045,7 +4271,7 @@ export function crewDisciplineChangeCost(game: GameState, crewId: string): numbe
 export function setCrewDiscipline(game: GameState, crewId: string, disciplineId: CrewDisciplineId): GameState {
   if (game.phase !== "map" || !(disciplineId in CREW_DISCIPLINES)) return game;
   const member = game.crew.find((item) => item.id === crewId);
-  if (!member || member.captivity || crewRank(member.experience).level < 1 || member.disciplineId === disciplineId) return game;
+  if (!member || member.captivity || crewIsOnDeputyDispatch(game, crewId) || crewRank(member.experience).level < 1 || member.disciplineId === disciplineId) return game;
   const cost = crewDisciplineChangeCost(game, crewId);
   if (game.silver < cost) return game;
   const discipline = CREW_DISCIPLINES[disciplineId];

@@ -1,4 +1,4 @@
-import type { Contract, FactionId, GameState, HandoffChoice, LegacyId, LegacyState, MartialArtId, OriginId, TradeGoodId, TravelCoverId, TravelStance } from "./types";
+import type { Contract, DeputyDispatch, DeputyDispatchOutcome, DeputyDispatchReport, FactionId, GameState, HandoffChoice, LegacyId, LegacyState, MartialArtId, OriginId, TradeGoodId, TravelCoverId, TravelStance } from "./types";
 import { hydrateLegacyContract } from "./content";
 import { createInitialCityReputation, createInitialCrew, createInitialOffices, createInitialRouteIntel, createInitialRouteStates, crewBattleGuards } from "./game";
 import { generateRecruitPool, normalizeCrewMember } from "./crewContent";
@@ -26,6 +26,63 @@ const STORE_NAME = "games";
 const SLOT = "autosave";
 const LEGACY_SLOT = "legacy";
 
+const ROUTE_IDS = new Set(ROUTES.map((route) => route.id));
+const DISPATCH_OUTCOMES = new Set<DeputyDispatchOutcome>(["success", "hard-won", "failed"]);
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+}
+
+function normalizeDeputyDispatches(value: unknown, rosterCrewIds: Set<string>): DeputyDispatch[] {
+  if (!Array.isArray(value)) return [];
+  for (const item of value) {
+    if (!item || typeof item !== "object") continue;
+    const source = item as Record<string, unknown>;
+    const crewIds = [...new Set(Array.isArray(source.crewIds) ? source.crewIds.filter((id): id is string => typeof id === "string" && rosterCrewIds.has(id)) : [])];
+    if (typeof source.id !== "string" || typeof source.title !== "string" || typeof source.routeId !== "string" || !ROUTE_IDS.has(source.routeId) || typeof source.fromCityId !== "string" || typeof source.toCityId !== "string" || crewIds.length !== 3) continue;
+    const startedDay = Math.max(1, Math.floor(finiteNumber(source.startedDay, 1)));
+    const returnsDay = Math.max(startedDay + 1, Math.floor(finiteNumber(source.returnsDay, startedDay + 1)));
+    return [{
+      id: source.id,
+      title: source.title,
+      routeId: source.routeId,
+      fromCityId: source.fromCityId,
+      toCityId: source.toCityId,
+      crewIds,
+      startedDay,
+      returnsDay,
+      danger: Math.max(0, Math.min(100, Math.round(finiteNumber(source.danger)))),
+      successChance: Math.max(0, Math.min(100, Math.round(finiteNumber(source.successChance)))),
+      successReward: Math.max(0, Math.round(finiteNumber(source.successReward))),
+      wageCost: Math.max(0, Math.round(finiteNumber(source.wageCost))),
+      resolutionRoll: Math.max(0, Math.min(1, finiteNumber(source.resolutionRoll, .5))),
+    }];
+  }
+  return [];
+}
+
+function normalizeDeputyDispatchReports(value: unknown, rosterCrewIds: Set<string>): DeputyDispatchReport[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    if (!item || typeof item !== "object") return [];
+    const source = item as Record<string, unknown>;
+    const crewIds = [...new Set(Array.isArray(source.crewIds) ? source.crewIds.filter((id): id is string => typeof id === "string" && rosterCrewIds.has(id)) : [])];
+    if (typeof source.id !== "string" || typeof source.title !== "string" || typeof source.routeId !== "string" || !ROUTE_IDS.has(source.routeId) || typeof source.fromCityId !== "string" || typeof source.toCityId !== "string" || typeof source.outcome !== "string" || !DISPATCH_OUTCOMES.has(source.outcome as DeputyDispatchOutcome) || typeof source.summary !== "string") return [];
+    return [{
+      id: source.id,
+      title: source.title,
+      routeId: source.routeId,
+      fromCityId: source.fromCityId,
+      toCityId: source.toCityId,
+      crewIds,
+      resolvedDay: Math.max(1, Math.floor(finiteNumber(source.resolvedDay, 1))),
+      outcome: source.outcome as DeputyDispatchOutcome,
+      silverChange: Math.round(finiteNumber(source.silverChange)),
+      summary: source.summary,
+    } satisfies DeputyDispatchReport];
+  }).slice(0, 4);
+}
+
 function openDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
     const request = indexedDB.open(DB_NAME, 1);
@@ -51,7 +108,7 @@ export async function saveGame(game: GameState): Promise<void> {
 export function migrateSavedGame(value: unknown): GameState | null {
   if (!value || typeof value !== "object") return null;
   const saved = value as Record<string, unknown>;
-  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22 && saved.version !== 23 && saved.version !== 24) return null;
+  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22 && saved.version !== 23 && saved.version !== 24 && saved.version !== 25) return null;
   const legacy = value as unknown as GameState;
   if (!legacy.cities || !legacy.day) return null;
   const originId: OriginId = typeof saved.originId === "string" && saved.originId in ORIGINS ? saved.originId as OriginId : "linan-guild";
@@ -65,12 +122,16 @@ export function migrateSavedGame(value: unknown): GameState | null {
   const crew = Array.isArray(saved.crew)
     ? legacy.crew.map((member) => normalizeCrewMember(member, legacy.currentCityId ?? "linan"))
     : createInitialCrew();
+  const rosterCrewIds = new Set(crew.map((member) => member.id));
+  const deputyDispatches = normalizeDeputyDispatches(saved.deputyDispatches, rosterCrewIds);
+  const deputyDispatchReports = normalizeDeputyDispatchReports(saved.deputyDispatchReports, rosterCrewIds);
+  const dispatchedCrewIds = new Set(deputyDispatches.flatMap((dispatch) => dispatch.crewIds));
   const leader = normalizeLeaderProgression(saved.leader);
   const normalizedEquipmentStock = normalizeEquipmentStock(saved.equipmentStock);
   const equipmentTuning = normalizeEquipmentTuning(saved.equipmentTuning);
   const crewEquipment = normalizeCrewEquipment(saved.crewEquipment);
   const equipmentStock = Object.fromEntries(EQUIPMENT_LIST.map((item) => [item.id, Math.max(normalizedEquipmentStock[item.id], equippedCount(crewEquipment, item.id))])) as GameState["equipmentStock"];
-  const availableCrewIds = new Set(crew.filter((member) => !member.captivity).map((member) => member.id));
+  const availableCrewIds = new Set(crew.filter((member) => !member.captivity && !dispatchedCrewIds.has(member.id)).map((member) => member.id));
   const activeCrewIds = [...new Set(Array.isArray(saved.activeCrewIds) ? legacy.activeCrewIds : ["lu-cang", "qiao-qing", "he-sheng"])]
     .filter((id) => availableCrewIds.has(id))
     .slice(0, 3);
@@ -171,7 +232,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
     : Math.round((typeof saved.reputation === "number" ? saved.reputation : ORIGINS[originId].reputation) * 0.5));
   return {
     ...legacy,
-    version: 24,
+    version: 25,
     originId,
     legacyId,
     jianghuReputation,
@@ -193,6 +254,8 @@ export function migrateSavedGame(value: unknown): GameState | null {
     martialArtId,
     leader,
     crew,
+    deputyDispatches,
+    deputyDispatchReports,
     equipmentStock,
     equipmentTuning,
     crewEquipment,

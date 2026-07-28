@@ -17,6 +17,8 @@ import {
   createInitialGame,
   createWorldActorEvent,
   departureReadinessForPlan,
+  deputyDispatchBoard,
+  deputyDispatchCrewIds,
   establishOffice,
   factionAudienceOffer,
   factionPermitOffer,
@@ -51,6 +53,7 @@ import {
   setMartialArt,
   supplyPurchaseAmount,
   supportCurrentCity,
+  startDeputyDispatch,
   stopoverRouteOptions,
   tradeOffer,
   toggleJourneyCrew,
@@ -1348,7 +1351,10 @@ function App() {
   const selectedPermitActive = hasActivePermit(game, selectedState.owner);
   const activeRoutes = game.phase === "planning" ? [] : game.journey?.plan.routeIds ?? [];
   const currentCity = cityById(game.currentCityId);
-  const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member && !member.captivity));
+  const dispatchedCrewIds = deputyDispatchCrewIds(game);
+  const activeDeputyDispatch = game.deputyDispatches[0] ?? null;
+  const dispatchBoard = deputyDispatchBoard(game);
+  const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member && !member.captivity && !dispatchedCrewIds.has(member.id)));
   const journeyStance = travelStanceById(game.journey?.stance);
   const previewedRoutePlan = routePlans.find((plan) => plan.id === effectiveRoutePreviewId) ?? routePlans[0] ?? game.journey?.plan;
   const planningBorderFactions = previewedRoutePlan ? routeBorderFactions(game, previewedRoutePlan) : [];
@@ -1433,6 +1439,7 @@ function App() {
               game={game}
               selectedCityId={game.selectedCityId}
               activeRouteIds={activeRoutes}
+              deputyRouteIds={game.deputyDispatches.map((dispatch) => dispatch.routeId)}
               routeCandidates={mapRouteCandidates}
               previewRouteId={effectiveRoutePreviewId}
               onPreviewRoute={setPreviewRoutePlanId}
@@ -1746,20 +1753,45 @@ function App() {
                       const rank = crewRank(member.experience);
                       const injury = crewInjuryById(member.injury?.id);
                       const mastery = crewMasteryForRole(member.role, rank.level);
+                      const dispatch = game.deputyDispatches.find((item) => item.crewIds.includes(member.id));
                       return (
-                        <div key={member.id} className={`${member.hp < 20 ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""} ${member.captivity ? "is-captive" : ""}`} title={member.biography}>
+                        <div key={member.id} className={`${member.hp < 20 ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""} ${member.captivity ? "is-captive" : ""} ${dispatch ? "is-dispatched" : ""}`} title={member.biography}>
                           <span className="crew-role">{member.role}</span>
                           <b>{member.name}<em>{rank.label}</em></b>
                           <small>字{member.courtesy} · {member.specialty} · 阅历 {member.experience}</small>
                           {mastery && <mark className="crew-mastery-tag">{mastery.seal} · {mastery.name}</mark>}
                           {injury && member.injury && <mark className="crew-injury-tag">{injury.seal} · {injury.name} · 余 {member.injury.remainingDays} 日</mark>}
                           {member.captivity && <mark className="crew-captivity-tag">俘 · {member.captivity.captor} · 第{member.captivity.sinceDay}日</mark>}
+                          {dispatch && <mark className="crew-dispatch-tag">副 · 在途 · 第{dispatch.returnsDay}日归</mark>}
                           <i><em style={{ width: `${(member.hp / member.maxHp) * 100}%` }} /></i>
                           <strong>{member.hp}/{member.maxHp}</strong>
                         </div>
                       );
                     })}
                   </div>
+                  <section className="deputy-dispatch-board" aria-label="副镖头分队押短镖">
+                    <header><i>副</i><span><small>分旗经营 · 副镖头独立带队</small><b>{activeDeputyDispatch ? "副旗在途" : "副队短镖"}</b><p>分队三人承办邻城短镖，主队仍保留三人；结果按真实路险、队伍配置与回程日期结算。</p></span></header>
+                    {activeDeputyDispatch ? (() => {
+                      const elapsed = Math.max(0, game.day - activeDeputyDispatch.startedDay);
+                      const total = Math.max(1, activeDeputyDispatch.returnsDay - activeDeputyDispatch.startedDay);
+                      const members = activeDeputyDispatch.crewIds.map((id) => game.crew.find((member) => member.id === id)).filter(Boolean);
+                      return <article className="deputy-dispatch-active">
+                        <div className="deputy-dispatch-route"><span><small>{cityById(activeDeputyDispatch.fromCityId).name} → {cityById(activeDeputyDispatch.toCityId).name}</small><b>{activeDeputyDispatch.title}</b><em>{routeById(activeDeputyDispatch.routeId).name}</em></span><strong>第 {activeDeputyDispatch.returnsDay} 日归旗</strong></div>
+                        <div className="deputy-dispatch-team">{members.map((member) => <span key={member!.id}><small>{member!.role}</small><b>{member!.name}</b></span>)}</div>
+                        <div className="deputy-dispatch-metrics"><span><small>成镖把握</small><b>{activeDeputyDispatch.successChance}%</b></span><span><small>成镖净得</small><b>+{activeDeputyDispatch.successReward} 两</b></span><span><small>失手脚钱</small><b>-{activeDeputyDispatch.wageCost} 两</b></span><span><small>余程</small><b>{Math.max(0, activeDeputyDispatch.returnsDay - game.day)} 日</b></span></div>
+                        <div className="deputy-dispatch-progress"><i><em style={{ width: `${Math.min(100, elapsed / total * 100)}%` }} /></i><span>{elapsed >= total ? "归报正在送入柜上" : `已行 ${elapsed} / ${total} 日`}</span></div>
+                      </article>;
+                    })() : dispatchBoard.available ? <div className="deputy-dispatch-offers">
+                      {dispatchBoard.offers.map((offer) => <article key={offer.routeId} className={`risk-${offer.risk}`}>
+                        <div className="deputy-dispatch-route"><span><small>{cityById(offer.fromCityId).name} → {cityById(offer.toCityId).name} · {offer.risk}险</small><b>{offer.title}</b><em>{offer.routeName} · 往返 {offer.days} 日</em></span><strong>路险 {offer.danger}</strong></div>
+                        <p>{offer.roleNote}</p>
+                        <div className="deputy-dispatch-team">{offer.crewIds.map((id) => { const member = game.crew.find((item) => item.id === id)!; return <span key={id}><small>{member.role}</small><b>{member.name}</b></span>; })}</div>
+                        <div className="deputy-dispatch-metrics"><span><small>成镖把握</small><b>{offer.successChance}%</b></span><span><small>成镖净得</small><b>+{offer.successReward} 两</b></span><span><small>失手脚钱</small><b>-{offer.wageCost} 两</b></span></div>
+                        <button onClick={() => setGame(startDeputyDispatch(game, offer.routeId))}>落副旗 · 发往{cityById(offer.toCityId).name}</button>
+                      </article>)}
+                    </div> : <p className="deputy-dispatch-empty">当前不能分旗：{dispatchBoard.reason}</p>}
+                    {game.deputyDispatchReports.length > 0 && <div className="deputy-dispatch-reports"><strong>近日归报</strong>{game.deputyDispatchReports.slice(0, 2).map((report) => <p key={report.id} className={`outcome-${report.outcome}`}><i>{report.outcome === "success" ? "成" : report.outcome === "hard-won" ? "守" : "折"}</i><span><b>{report.title}</b><small>第 {report.resolvedDay} 日 · 银钱 {report.silverChange >= 0 ? "+" : ""}{report.silverChange} 两</small><em>{report.summary}</em></span></p>)}</div>}
+                  </section>
                   <LeaderProgressionPanel game={game} onChange={setGame} />
                   <CrewEquipmentPanel game={game} onChange={setGame} />
                   <section className="jianghu-standing-card" aria-label={`江湖声望 ${game.jianghuReputation}，${currentJianghuStanding.label}`}>
@@ -1866,6 +1898,7 @@ function App() {
                     const selected = game.activeCrewIds.includes(member.id);
                     const wounded = member.hp < 20;
                     const captive = Boolean(member.captivity);
+                    const dispatch = game.deputyDispatches.find((item) => item.crewIds.includes(member.id));
                     const injury = crewInjuryById(member.injury?.id);
                     const rank = crewRank(member.experience);
                     const mastery = crewMasteryForRole(member.role, rank.level);
@@ -1873,12 +1906,12 @@ function App() {
                     return (
                       <button
                         key={member.id}
-                        className={`${selected ? "is-selected" : ""} ${wounded ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""} ${captive ? "is-captive" : ""}`}
+                        className={`${selected ? "is-selected" : ""} ${wounded ? "is-wounded" : ""} ${injury ? `has-injury severity-${injury.severity}` : ""} ${captive ? "is-captive" : ""} ${dispatch ? "is-dispatched" : ""}`}
                         aria-pressed={selected}
-                        disabled={wounded || captive}
+                        disabled={wounded || captive || Boolean(dispatch)}
                         onClick={() => setGame(toggleJourneyCrew(game, member.id))}
                       >
-                        <span>{captive ? "路上失陷 · 暂不可点将" : `${member.role} · ${rank.label}${bond ? ` · 主副${bond.label}` : ""}`}</span><b>{member.name}</b><small>{captive ? `被${member.captivity?.captor}扣押 · 前往人物页查看赎回路引` : `${member.specialty} · 阅历 ${member.experience}${mastery ? ` · 绝活「${mastery.name}」` : ""}${bond ? ` · 默契 ${game.leader.deputyBonds[member.id] ?? 0}` : ""}${injury ? ` · ${injury.name}` : ""}`}</small>
+                        <span>{captive ? "路上失陷 · 暂不可点将" : dispatch ? `副旗在途 · 第${dispatch.returnsDay}日归` : `${member.role} · ${rank.label}${bond ? ` · 主副${bond.label}` : ""}`}</span><b>{member.name}</b><small>{captive ? `被${member.captivity?.captor}扣押 · 前往人物页查看赎回路引` : dispatch ? `随${game.crew.find((item) => item.id === dispatch.crewIds[0])?.name ?? "副镖头"}承办「${dispatch.title}」` : `${member.specialty} · 阅历 ${member.experience}${mastery ? ` · 绝活「${mastery.name}」` : ""}${bond ? ` · 默契 ${game.leader.deputyBonds[member.id] ?? 0}` : ""}${injury ? ` · ${injury.name}` : ""}`}</small>
                         <i><em style={{ width: `${(member.hp / member.maxHp) * 100}%` }} /></i>
                         <strong>{member.hp}</strong>
                       </button>
