@@ -16,6 +16,7 @@ import { layoutCityMarkerClusters } from "../map/cityClusters";
 import { detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
 import { layoutMapActors, type MapIconObstacle } from "../map/mapIconLayout";
 import { layoutRouteLandmarks } from "../map/routeLandmarkLayout";
+import { layoutSettlementMarkers } from "../map/settlementMarkerLayout";
 import { layoutWeatherMarkers } from "../map/weatherMarkerLayout";
 import { politicalBorderCityIds, routeCrossesPoliticalBorder, routeOwners, splitQuadraticCurve } from "../map/politicalBorders";
 import { routeCandidateAnchorRouteId, routeCandidateCityRole, routeCandidateSeal, type MapRouteCandidate } from "../map/routeComparison";
@@ -357,6 +358,10 @@ export default function WorldMap({
   const currentCity = CITIES.find((city) => city.id === game.currentCityId);
   const selectedWeather = selectedCity ? weatherForCity(game.seed, game.day, selectedCity) : null;
   const regionalWeather = useMemo(() => regionalWeatherSnapshot(game.seed, game.day), [game.seed, game.day]);
+  const visibleRegionalWeather = useMemo(
+    () => mapLayer === "weather" ? regionalWeather : regionalWeather.filter((weather) => weather.kind !== "clear"),
+    [regionalWeather, mapLayer],
+  );
   const activeCityIds = useMemo(() => new Set(game.journey?.plan.cityIds ?? []), [game.journey?.plan.id]);
   const routeCandidateSignature = routeCandidates.map((candidate) => candidate.id).join("|");
   const effectivePreviewId = routeCandidates.some((candidate) => candidate.id === previewRouteId) ? previewRouteId : routeCandidates[0]?.id ?? null;
@@ -388,7 +393,6 @@ export default function WorldMap({
     ...cityMarkerClusters.filter((cluster) => cluster.cityIds.length === 1).map((cluster) => cluster.primaryCityId),
   ]), [protectedCityIds, cityMarkerClusters]);
   const visibleDetailedCities = useMemo(() => new Set([...detailedCities].filter((cityId) => individualCityIds.has(cityId))), [detailedCities, individualCityIds]);
-  const detailedCityList = useMemo(() => CITIES.filter((city) => visibleDetailedCities.has(city.id)), [visibleDetailedCities]);
   const borderCityIds = useMemo(() => politicalBorderCityIds(game.cities, ROUTES), [game.cities]);
   const borderRouteCount = useMemo(() => ROUTES.filter((route) => routeCrossesPoliticalBorder(game.cities, route)).length, [game.cities]);
   const cityRenderOrder = useMemo(() => CITIES.filter((city) => individualCityIds.has(city.id)).sort((a, b) => {
@@ -400,14 +404,55 @@ export default function WorldMap({
     return priority(a.id) - priority(b.id) || a.y - b.y || a.id.localeCompare(b.id);
   }), [activeCityIds, borderCityIds, selectedCityId, game.currentCityId, individualCityIds]);
   const compactCityCount = individualCityIds.size - visibleDetailedCities.size;
-  const cityIconObstacles = useMemo<MapIconObstacle[]>(() => [
-    ...CITIES.filter((city) => visibleDetailedCities.has(city.id)).map((city) => {
+  const settlementMarkerLayout = useMemo(() => layoutSettlementMarkers([
+    ...CITIES.filter((city) => individualCityIds.has(city.id)).map((city) => {
+      const detailed = visibleDetailedCities.has(city.id);
       const glyphScale = CITY_GLYPH_SCALE[mapDetail][city.tier];
-      const radius = (city.tier === "capital" ? 15 : city.tier === "major" ? 12 : 6.5) * glyphScale + 2.2;
-      return { id: city.id, x: city.x, y: city.y, radius };
+      const radius = detailed
+        ? (city.tier === "capital" ? 15 : city.tier === "major" ? 12 : 6.5) * glyphScale + 2.2
+        : mapDetail === "wide" ? 5.1 : mapDetail === "mid" ? 4 : 3.4;
+      const priority = (game.currentCityId === city.id ? 1000 : 0)
+        + (selectedCityId === city.id ? 900 : 0)
+        + (activeCityIds.has(city.id) || candidateCityIds.has(city.id) ? 800 : 0)
+        + (city.tier === "capital" ? 700 : city.tier === "major" ? 350 : 100)
+        + (game.offices[city.id] ? 560 : 0)
+        + (borderCityIds.has(city.id) ? 420 : 0);
+      return {
+        id: `city:${city.id}`,
+        x: city.x,
+        y: city.y,
+        radius,
+        priority,
+        fixed: game.currentCityId === city.id,
+      };
     }),
-    ...cityMarkerClusters.map((cluster) => ({ id: `city-cluster:${cluster.id}`, x: cluster.x, y: cluster.y, radius: cluster.radius })),
-  ], [mapDetail, visibleDetailedCities, cityMarkerClusters]);
+    ...cityStackClusters.map((cluster) => {
+      const primary = CITIES.find((city) => city.id === cluster.primaryCityId)!;
+      return {
+        id: `cluster:${cluster.id}`,
+        x: cluster.x,
+        y: cluster.y,
+        radius: cluster.radius + 3.2,
+        priority: primary.tier === "major" ? 260 : 180,
+      };
+    }),
+  ], mapDetail), [individualCityIds, visibleDetailedCities, mapDetail, game.currentCityId, game.offices, selectedCityId, activeCityIds, candidateCityIds, borderCityIds, cityStackClusters]);
+  const settlementMarkerById = useMemo(() => new Map(settlementMarkerLayout.map((layout) => [layout.id, layout])), [settlementMarkerLayout]);
+  const positionedIndividualCities = useMemo(() => CITIES.filter((city) => individualCityIds.has(city.id)).map((city) => {
+    const layout = settlementMarkerById.get(`city:${city.id}`);
+    return layout ? { ...city, x: layout.markerX, y: layout.markerY } : city;
+  }), [individualCityIds, settlementMarkerById]);
+  const positionedCityById = useMemo(() => new Map(positionedIndividualCities.map((city) => [city.id, city])), [positionedIndividualCities]);
+  const detailedCityList = useMemo(() => positionedIndividualCities.filter((city) => visibleDetailedCities.has(city.id)), [positionedIndividualCities, visibleDetailedCities]);
+  const cityIconObstacles = useMemo<MapIconObstacle[]>(() => settlementMarkerLayout.map((layout) => ({
+    id: layout.id,
+    x: layout.markerX,
+    y: layout.markerY,
+    radius: layout.radius,
+  })), [settlementMarkerLayout]);
+  const cityClusterObstacles = useMemo<MapIconObstacle[]>(() => settlementMarkerLayout
+    .filter((layout) => layout.id.startsWith("cluster:"))
+    .map((layout) => ({ id: layout.id, x: layout.markerX, y: layout.markerY, radius: layout.radius })), [settlementMarkerLayout]);
   const routeBadgeObstacles = useMemo<MapIconObstacle[]>(() => ROUTES.flatMap((route) => {
     const curve = routeCurve(route);
     const knownCondition = game.routeIntel[route.id]?.knownCondition ?? "clear";
@@ -419,9 +464,11 @@ export default function WorldMap({
     if (routeCrossesPoliticalBorder(game.cities, route)) {
       const split = splitQuadraticCurve({ from: curve.from, to: curve.to, control: { x: curve.mx, y: curve.my } });
       badges.push({ id: `route-border:${route.id}`, x: split.midpoint.x, y: split.midpoint.y, radius: badgeRadius });
+    } else if (mapLayer === "roads" && knownCondition === "clear" && !activeRoutes.has(route.id)) {
+      badges.push({ id: `route-kind:${route.id}`, x: curve.mx, y: curve.my, radius: badgeRadius * .74 });
     }
     return badges;
-  }), [game.cities, game.routeIntel, mapDetail, activeRouteSignature]);
+  }), [game.cities, game.routeIntel, mapDetail, activeRouteSignature, mapLayer]);
   const pinnedLandmarkRouteIds = useMemo(() => new Set([
     ...activeRouteIds,
     ...(previewCandidate?.routeIds ?? []),
@@ -468,25 +515,26 @@ export default function WorldMap({
     y: layout.y,
     radius: layout.radius,
   })), [actorLayout]);
-  const weatherMarkerLayout = useMemo(() => layoutWeatherMarkers(regionalWeather.map((weather) => {
+  const weatherMarkerLayout = useMemo(() => layoutWeatherMarkers(visibleRegionalWeather.map((weather) => {
     const point = projectedLabel(...weather.region.center);
     const offset = weatherMarkerOffset[weather.region.id] ?? { x: 0, y: 0 };
     return { id: weather.region.id, x: point.x, y: point.y, offsetX: offset.x, offsetY: offset.y };
-  }), [...cityIconObstacles, ...routeBadgeObstacles, ...landmarkObstacles, ...actorObstacles], mapDetail), [regionalWeather, cityIconObstacles, routeBadgeObstacles, landmarkObstacles, actorObstacles, mapDetail]);
+  }), [...cityIconObstacles, ...routeBadgeObstacles, ...landmarkObstacles, ...actorObstacles], mapDetail), [visibleRegionalWeather, cityIconObstacles, routeBadgeObstacles, landmarkObstacles, actorObstacles, mapDetail]);
   const weatherByRegionId = useMemo(() => new Map<string, (typeof regionalWeather)[number]>(regionalWeather.map((weather) => [weather.region.id, weather])), [regionalWeather]);
   const notableWeather = useMemo(() => regionalWeather
     .filter((weather) => weather.kind !== "clear")
     .sort((a, b) => b.severity - a.severity || a.region.id.localeCompare(b.region.id))
     .slice(0, 3), [regionalWeather]);
   const overlayLabelObstacles = useMemo<MapIconObstacle[]>(() => [
+    ...cityClusterObstacles,
     ...routeBadgeObstacles,
     ...landmarkObstacles,
     ...actorObstacles,
     ...weatherMarkerLayout.map((layout) => ({ id: `weather:${layout.id}`, x: layout.markerX, y: layout.markerY, radius: layout.radius })),
-  ], [routeBadgeObstacles, landmarkObstacles, actorObstacles, weatherMarkerLayout]);
+  ], [cityClusterObstacles, routeBadgeObstacles, landmarkObstacles, actorObstacles, weatherMarkerLayout]);
   const cityLabels = useMemo(
-    () => layoutCityLabels(detailedCityList, viewport, mapDetail, pinnedCityIds, CITIES, visibleDetailedCities, overlayLabelObstacles),
-    [detailedCityList, viewport, mapDetail, pinnedCityIds, visibleDetailedCities, overlayLabelObstacles],
+    () => layoutCityLabels(detailedCityList, viewport, mapDetail, pinnedCityIds, positionedIndividualCities, visibleDetailedCities, overlayLabelObstacles),
+    [detailedCityList, viewport, mapDetail, pinnedCityIds, positionedIndividualCities, visibleDetailedCities, overlayLabelObstacles],
   );
   const stackedActorGroups = actorLayout.filter((group) => group.actorIds.length > 1).length;
   const stackedLandmarkGroups = landmarkLayout.filter((group) => group.landmarkIds.length > 1).length;
@@ -639,7 +687,7 @@ export default function WorldMap({
     if (!svg) return;
     event.stopPropagation();
     const point = mapPointFromClient(event.clientX, event.clientY, svg.getBoundingClientRect(), viewportRef.current);
-    const nearest = nearestCityToPoint(CITIES.filter((city) => individualCityIds.has(city.id) && Boolean(game.cities[city.id])), point);
+    const nearest = nearestCityToPoint(positionedIndividualCities.filter((city) => Boolean(game.cities[city.id])), point);
     if (nearest) onSelectCity(nearest.id);
   }
 
@@ -868,16 +916,24 @@ export default function WorldMap({
             const knownCondition = game.routeIntel[route.id]?.knownCondition ?? "clear";
             const conditionEffect = ROUTE_CONDITION_EFFECTS[knownCondition];
             const routeWeather = weatherForRoute(game.seed, game.day, route);
+            const borderRoute = routeCrossesPoliticalBorder(game.cities, route);
+            const routeSealScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .7 : .48;
             return (
               <g key={route.id} className={`route route-${route.terrain} route-condition-${knownCondition} route-weather-${routeWeather.kind} weather-severity-${routeWeather.severity} ${intelClass} ${active ? "is-active" : ""}`}>
                 <path className="route-hit" d={path} />
                 <path className="route-shadow" d={path} />
                 <path className="route-casing" d={path} />
+                <path className="route-bed" d={path} />
                 <path className="route-line" d={path} stroke={active ? "#e0b85d" : terrainColor[route.terrain]} />
                 <path className="route-pattern" d={path} />
                 <path className="route-weather-trace" d={path} />
-                {active && knownCondition === "clear" && <g className={`route-active-seal terrain-${route.terrain}`} transform={`translate(${mx} ${my})`}><circle r="5.2" /><text y="2" textAnchor="middle">{terrainSeal[route.terrain]}</text></g>}
-                {knownCondition !== "clear" && <g className={`route-condition-seal condition-${knownCondition} ${intelAge > 2 ? "is-stale" : ""}`} transform={`translate(${mx} ${my})`}><circle r="5" /><text y="2" textAnchor="middle">{conditionEffect.seal}</text></g>}
+                {active && knownCondition === "clear" && <g className={`route-active-seal terrain-${route.terrain}`} transform={`translate(${mx} ${my})`}><g transform={`scale(${routeSealScale})`}><circle r="5.2" /><text y="2" textAnchor="middle">{terrainSeal[route.terrain]}</text></g></g>}
+                {knownCondition !== "clear" && <g className={`route-condition-seal condition-${knownCondition} ${intelAge > 2 ? "is-stale" : ""}`} transform={`translate(${mx} ${my})`}><g transform={`scale(${routeSealScale})`}><circle r="5" /><text y="2" textAnchor="middle">{conditionEffect.seal}</text></g></g>}
+                {mapLayer === "roads" && knownCondition === "clear" && !active && !borderRoute && (
+                  <g className={`route-terrain-seal terrain-${route.terrain}`} transform={`translate(${mx} ${my})`} aria-hidden="true">
+                    <g transform={`scale(${routeSealScale})`}><circle r="4.2" /><text y="1.7" textAnchor="middle">{terrainSeal[route.terrain]}</text></g>
+                  </g>
+                )}
                 <title>{route.name} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {routeWeather.seal}·{routeWeather.label} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
               </g>
             );
@@ -1003,17 +1059,21 @@ export default function WorldMap({
         </g>
 
         <g className="city-hit-layer" aria-hidden="true">
-          {cityRenderOrder.map((city) => game.cities[city.id] ? (
-            <g
-              key={city.id}
-              className={`city-node-hit-target ${selectedCityId === city.id ? "is-selected" : ""} ${game.currentCityId === city.id ? "is-current" : ""}`}
-              data-city-id={city.id}
-              transform={`translate(${city.x} ${city.y})`}
-              onClick={handleCityHit}
-            >
-              <circle className="city-node-hit" r={markerHitRadius(city)} />
-            </g>
-          ) : null)}
+          {cityRenderOrder.map((city) => {
+            const positioned = positionedCityById.get(city.id);
+            if (!game.cities[city.id] || !positioned) return null;
+            return (
+              <g
+                key={city.id}
+                className={`city-node-hit-target ${selectedCityId === city.id ? "is-selected" : ""} ${game.currentCityId === city.id ? "is-current" : ""}`}
+                data-city-id={city.id}
+                transform={`translate(${positioned.x} ${positioned.y})`}
+                onClick={handleCityHit}
+              >
+                <circle className="city-node-hit" r={markerHitRadius(city)} />
+              </g>
+            );
+          })}
         </g>
 
         <g className="cities">
@@ -1037,14 +1097,23 @@ export default function WorldMap({
             const hitRadius = markerHitRadius(city);
             const locatorScale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .58 : .32;
             const borderCity = borderCityIds.has(city.id);
+            const markerLayout = settlementMarkerById.get(`city:${city.id}`);
+            const markerX = markerLayout?.markerX ?? city.x;
+            const markerY = markerLayout?.markerY ?? city.y;
+            const anchorDx = city.x - markerX;
+            const anchorDy = city.y - markerY;
             return (
               <g
                 key={city.id}
                 className={`city-node ${detailedMarker ? "marker-detailed" : "marker-dot"} tier-${city.tier} status-${state.status} ${frontline.visible ? `is-frontline frontline-${frontline.risk}` : ""} ${selected ? "is-selected" : ""} ${current ? "is-current" : ""} ${active ? "is-on-route" : ""} ${candidateRole ? `is-candidate-waypoint waypoint-${candidateRole} candidate-tone-${Math.max(0, previewCandidateIndex) % 3}` : ""}`}
                 data-city-id={city.id}
-                transform={`translate(${city.x} ${city.y})`}
+                transform={`translate(${markerX} ${markerY})`}
                 onClick={(event) => { event.stopPropagation(); onSelectCity(city.id); }}
               >
+                {markerLayout?.displaced && <g className="settlement-anchor" aria-hidden="true">
+                  <path d={`M0 0 L${anchorDx} ${anchorDy}`} />
+                  <circle cx={anchorDx} cy={anchorDy} r="1.45" />
+                </g>}
                 {detailedMarker && showBadges && frontline.visible && <circle className={`frontline-ring risk-${frontline.risk}`} r={city.tier === "station" ? 10.5 : 16} aria-hidden="true" />}
                 {detailedMarker
                   ? <g className="city-glyph-lod" transform={`scale(${glyphScale})`}><CityGlyph tier={city.tier} color={faction.color} /></g>
@@ -1110,11 +1179,16 @@ export default function WorldMap({
             const primary = members.find((city) => city?.id === cluster.primaryCityId)!;
             const faction = FACTIONS[game.cities[primary.id].owner];
             const names = members.map((city) => city!.name).join("、");
+            const markerLayout = settlementMarkerById.get(`cluster:${cluster.id}`);
+            const markerX = markerLayout?.markerX ?? cluster.x;
+            const markerY = markerLayout?.markerY ?? cluster.y;
+            const anchorDx = cluster.x - markerX;
+            const anchorDy = cluster.y - markerY;
             return (
               <g
                 key={cluster.id}
                 className="city-cluster"
-                transform={`translate(${cluster.x} ${cluster.y})`}
+                transform={`translate(${markerX} ${markerY})`}
                 role="button"
                 tabIndex={0}
                 aria-label={`${names}，共${cluster.cityIds.length}处城驿，点击放大展开`}
@@ -1122,6 +1196,10 @@ export default function WorldMap({
                 onClick={(event) => { event.stopPropagation(); focusCityCluster(cluster.cityIds); }}
                 onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") focusCityCluster(cluster.cityIds); }}
               >
+                {markerLayout?.displaced && <g className="settlement-anchor" aria-hidden="true">
+                  <path d={`M0 0 L${anchorDx} ${anchorDy}`} />
+                  <circle cx={anchorDx} cy={anchorDy} r="1.45" />
+                </g>}
                 <circle className="city-cluster-halo" r={cluster.radius + 3.2} />
                 <path className="city-cluster-paper" d={`M0 ${-cluster.radius} L${cluster.radius} 0 L0 ${cluster.radius} L${-cluster.radius} 0 Z`} />
                 <circle className="city-cluster-core" r={cluster.radius * .56} />
