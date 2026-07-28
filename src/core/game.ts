@@ -53,6 +53,7 @@ import { TRADE_GOODS, localTradeGood, tradeDemandLabel, tradeSaleValue } from ".
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "./martialContent";
 import { martialProficiencyRank } from "./martialProficiencyContent";
 import { advanceWorldActors, createInitialWorldActors, worldActorDangerModifier, worldActorsOnRoute } from "./worldActorContent";
+import { advanceRivalBureaus, createInitialRivalBureaus, rivalBureauByActor, rivalRank, rivalRelation, updateRivalRelation } from "./rivalContent";
 import { EQUIPMENT, MAX_EQUIPMENT_TUNING, createInitialCrewEquipment, createInitialEquipmentStock, createInitialEquipmentTuning, equipmentStats, equipmentTuningGrade, equipmentTuningLevel, equippedCount } from "./equipmentContent";
 import { LEGACY_BOONS, legacyStartingModifiers } from "./legacyContent";
 import { CREW_DISCIPLINES, crewDisciplineById } from "./crewDisciplineContent";
@@ -863,7 +864,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 20,
+    version: 21,
     seed,
     originId,
     legacyId,
@@ -884,6 +885,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
     routeIntel: createInitialRouteIntel(cities, 1, routeStates, headquartersCityId),
     routeStates,
     worldActors,
+    rivalBureaus: createInitialRivalBureaus(),
     offices: createInitialOffices(cities, headquartersCityId),
     contracts: generated.contracts,
     convoy: { leaderHp: 100, guardsFit: 3, cartHp: 100, cargoIntegrity: 100, sealIntact: true, morale: Math.min(100, origin.morale + legacy.morale), ...DEFAULT_CONVOY_EQUIPMENT, wagonId: origin.wagonId, horseTeamId: origin.horseTeamId, upgrades: [...origin.upgrades] },
@@ -1523,6 +1525,8 @@ function withWorldAdvance(game: GameState, days: number): GameState {
   const actorEvolution = advanceWorldActors(game.worldActors ?? createInitialWorldActors(), days, rngState, cities);
   rngState = actorEvolution.rngState;
   news.push(...actorEvolution.news.slice(0, 1));
+  const rivalEvolution = advanceRivalBureaus(game.rivalBureaus ?? createInitialRivalBureaus(), actorEvolution.arrivals, game.day + days);
+  news.unshift(...rivalEvolution.news);
 
   if (
     game.completedContracts === 0 &&
@@ -1545,7 +1549,7 @@ function withWorldAdvance(game: GameState, days: number): GameState {
   const routeEvolution = evolveRouteConditions(game.routeStates, cities, game.day + days, rngState, days, new Set(currentRouteId ? [currentRouteId] : []));
   rngState = routeEvolution.rngState;
   news.unshift(...routeEvolution.news);
-  next = { ...next, cities, routeStates: routeEvolution.routeStates, worldActors: actorEvolution.actors, news: news.slice(0, 6), rngState };
+  next = { ...next, cities, routeStates: routeEvolution.routeStates, worldActors: actorEvolution.actors, rivalBureaus: rivalEvolution.bureaus, news: news.slice(0, 6), rngState };
   const recoveredNames: string[] = [];
   const crew = next.crew.map((member) => {
     if (!member.injury) return member;
@@ -1865,15 +1869,18 @@ export function createWorldActorEvent(game: GameState, routeId: string, actor: W
       ],
     };
   }
+  const rival = rivalBureauByActor(game, actor.id);
+  const relationship = rival ? rivalRelation(rival.relation) : null;
+  const trustedRival = Boolean(rival && rival.relation >= 25);
   return {
     id: `caravan-${game.day}-${routeId}-${actor.id}`,
     kind: "caravan",
     actorId: actor.id,
     eyebrow: "两面镖旗挤上同一条路",
     title: `${actor.name}要争这一程头筹`,
-    description: `${actor.name}从${route.name}后方追来，既提议合力压住沿途宵小，又当众夸口会先到下一站。随行镖师都在等掌柜定夺。`,
+    description: `${actor.name}从${route.name}后方追来。此行现居「${rival ? rivalRank(rival.reputation).label : "熟旗通路"}」，与风云行${relationship ? `是「${relationship.label}」` : "素未深交"}；对方既提议合力压住沿途宵小，又当众夸口会先到下一站。`,
     choices: [
-      choice("rival-team", "合旗清路", game.supplies < 1 ? "至少需要 1 份补给招待同行" : "耗 1 份补给；江湖声望 +1、士气 +5，并核实今明两程路报", "safe", game.supplies < 1),
+      choice("rival-team", "合旗清路", trustedRival ? "旧交并旗免去招待；关系 +8、士气 +5，并核实今明两程路报" : game.supplies < 1 ? "至少需要 1 份补给招待同行" : "耗 1 份补给；关系 +8、江湖声望 +1，并核实今明两程路报", "safe", !trustedRival && game.supplies < 1),
       choice("rival-race", "催马争先", "马力 -14、车况 -4；江湖声望 +2、士气 +3", "risk"),
       choice("traveler-pass", "不争一时先后", "照自己的章程赶路，不受激将", "safe"),
     ],
@@ -2645,29 +2652,39 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
         news: [`【随营同道】${actorName}开出四日军前便牒，风云行缀随辎重走过此程，并抄得今明两程塘报。`, ...next.news].slice(0, 6),
       };
     } else if (choiceId === "rival-team") {
-      if (next.supplies < 1) return next;
+      if (!actor) return completeSegment(next);
+      const bureau = rivalBureauByActor(next, actor.id);
+      const hospitality = bureau && bureau.relation >= 25 ? 0 : 1;
+      if (next.supplies < hospitality) return next;
       next = {
         ...next,
-        supplies: next.supplies - 1,
+        supplies: next.supplies - hospitality,
         jianghuReputation: clampJianghuReputation(next.jianghuReputation + 1),
+        rivalBureaus: updateRivalRelation(next.rivalBureaus, actor.id, 8, next.day, `与风云行在${routeById(routeId).name}合旗互为前后哨。`),
         routeIntel: refreshedIntel(next, currentAndNextRouteIds(next)),
         convoy: { ...next.convoy, morale: Math.min(100, next.convoy.morale + 5) },
-        news: [`【两镖合旗】风云行拿出一份路粮招待${actorName}，两队互为前后哨，沿路宵小不敢近车。`, ...next.news].slice(0, 6),
+        news: [`【两镖合旗】风云行${hospitality ? "拿出一份路粮招待" : "与旧交"}${actorName}合旗，两队互为前后哨；同行关系 +8。`, ...next.news].slice(0, 6),
       };
     } else if (choiceId === "rival-race") {
+      if (!actor) return completeSegment(next);
       next = {
         ...next,
         jianghuReputation: clampJianghuReputation(next.jianghuReputation + 2),
+        rivalBureaus: updateRivalRelation(next.rivalBureaus, actor.id, -6, next.day, `在${routeById(routeId).name}与风云行争先半程，暂落后半个车身。`),
         convoy: {
           ...next.convoy,
           horseStamina: Math.max(0, next.convoy.horseStamina - 14),
           cartHp: Math.max(5, next.convoy.cartHp - 4),
           morale: Math.min(100, next.convoy.morale + 3),
         },
-        news: [`【镖路争先】风云行催马压过${actorName}半个车身，赢得叫好，也让车轴与马力吃了苦头。`, ...next.news].slice(0, 6),
+        news: [`【镖路争先】风云行催马压过${actorName}半个车身，江湖声望 +2、同行关系 -6，也让车轴与马力吃了苦头。`, ...next.news].slice(0, 6),
       };
     } else if (choiceId === "traveler-pass") {
-      next = { ...next, news: [`【各走一程】风云行与${actorName}拱手错过，各守自己的旗号和脚程。`, ...next.news].slice(0, 6) };
+      next = {
+        ...next,
+        rivalBureaus: actor?.kind === "rival" ? updateRivalRelation(next.rivalBureaus, actor.id, 1, next.day) : next.rivalBureaus,
+        news: [`【各走一程】风云行与${actorName}拱手错过，各守自己的旗号和脚程。`, ...next.news].slice(0, 6),
+      };
     } else return next;
     return completeSegment(next);
   }

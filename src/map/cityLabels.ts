@@ -25,6 +25,13 @@ export interface CityLabelLayout {
 
 interface Box { left: number; right: number; top: number; bottom: number }
 
+export interface CityLabelObstacle {
+  id: string;
+  x: number;
+  y: number;
+  radius: number;
+}
+
 const FONT_SIZE: Record<MapDetail, Record<CityTier, number>> = {
   wide: { capital: 18, major: 14, station: 11 },
   mid: { capital: 11.5, major: 10, station: 8.5 },
@@ -106,6 +113,7 @@ export function layoutCityLabels(
   pinned: Set<string>,
   obstacleCities: CityDefinition[] = cities,
   detailedCityIds: Set<string> = new Set(cities.map((city) => city.id)),
+  externalObstacles: readonly CityLabelObstacle[] = [],
 ): Record<string, CityLabelLayout> {
   const layout: Record<string, CityLabelLayout> = {};
   const inView = cities.filter((city) => city.x >= viewport.x - 20 && city.x <= viewport.x + viewport.width + 20 && city.y >= viewport.y - 20 && city.y <= viewport.y + viewport.height + 20);
@@ -114,6 +122,20 @@ export function layoutCityLabels(
     const radius = (detailedCityIds.has(city.id) ? glyphRadius(city.tier, detail) : compactGlyphRadius(detail)) + .8;
     return { id: city.id, box: { left: city.x - radius, right: city.x + radius, top: city.y - radius, bottom: city.y + radius } };
   });
+  const externalBoxes = externalObstacles
+    .filter((obstacle) => obstacle.x + obstacle.radius >= viewport.x - 20
+      && obstacle.x - obstacle.radius <= viewport.x + viewport.width + 20
+      && obstacle.y + obstacle.radius >= viewport.y - 20
+      && obstacle.y - obstacle.radius <= viewport.y + viewport.height + 20)
+    .map((obstacle) => ({
+      id: obstacle.id,
+      box: {
+        left: obstacle.x - obstacle.radius,
+        right: obstacle.x + obstacle.radius,
+        top: obstacle.y - obstacle.radius,
+        bottom: obstacle.y + obstacle.radius,
+      },
+    }));
   const labels: Box[] = [];
   const ordered = [...inView].sort((a, b) => priority(b, pinned) - priority(a, pinned) || a.y - b.y || a.id.localeCompare(b.id));
 
@@ -129,9 +151,10 @@ export function layoutCityLabels(
     for (const candidate of candidates) {
       const box = cityLabelBounds(city, candidate, detail);
       const iconConflicts = iconBoxes.filter((item) => item.id !== city.id && overlaps(box, item.box)).length;
+      const overlayConflicts = externalBoxes.filter((item) => overlaps(box, item.box, 1.8)).length;
       const labelConflicts = labels.filter((other) => overlaps(box, other)).length;
       const outside = box.left < viewport.x + 3 || box.right > viewport.x + viewport.width - 3 || box.top < viewport.y + 3 || box.bottom > viewport.y + viewport.height - 3;
-      const score = iconConflicts * 3 + labelConflicts * 4 + (outside ? 8 : 0);
+      const score = iconConflicts * 3 + overlayConflicts * 5 + labelConflicts * 4 + (outside ? 8 : 0);
       const option = { visible: true, ...candidate };
       if (score === 0) { chosen = option; labels.push(box); break; }
       if (!leastConflict || score < leastConflict.score) leastConflict = { score, layout: option };

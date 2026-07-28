@@ -12,6 +12,13 @@ const ACTOR_SPEED: Record<WorldActorKind, number> = {
 
 const FACTION_IDS = new Set<FactionId>(["song", "jin", "xixia", "dali", "tibetan", "mongol", "neutral"]);
 const ACTOR_KINDS = new Set<WorldActorKind>(["merchant", "patrol", "rival", "army"]);
+const INDEPENDENT_ROUTE_ACTORS = new Set(["jiangdong-escort", "shuchuan-escort"]);
+
+function independentRouteIndex(actorId: string, arrival: number, candidateCount: number): number {
+  let value = arrival * 131;
+  for (let index = 0; index < actorId.length; index += 1) value = Math.imul(value ^ actorId.charCodeAt(index), 16777619);
+  return (value >>> 0) % candidateCount;
+}
 
 const INITIAL_WORLD_ACTORS: WorldActor[] = [
   { id: "liangzhe-salt", name: "两浙盐纲", kind: "merchant", faction: "neutral", routeId: "linan-jiankang", fromCityId: "linan", toCityId: "jiankang", progress: 0.22 },
@@ -19,7 +26,9 @@ const INITIAL_WORLD_ACTORS: WorldActor[] = [
   { id: "jinghu-patrol", name: "京湖巡骑", kind: "patrol", faction: "song", routeId: "xiangyang-ezhou", fromCityId: "ezhou", toCityId: "xiangyang", progress: 0.64 },
   { id: "jin-outriders", name: "大金游骑", kind: "patrol", faction: "jin", routeId: "kaifeng-xiangyang", fromCityId: "kaifeng", toCityId: "xiangyang", progress: 0.55 },
   { id: "hexi-camel", name: "河西驼队", kind: "merchant", faction: "neutral", routeId: "lingzhou-lanzhou", fromCityId: "lingzhou", toCityId: "lanzhou", progress: 0.31 },
-  { id: "shunfeng-escort", name: "顺风镖队", kind: "rival", faction: "song", routeId: "fuzhou-quanzhou", fromCityId: "fuzhou", toCityId: "quanzhou", progress: 0.46 },
+  { id: "shunfeng-escort", name: "顺风镖行", kind: "rival", faction: "song", routeId: "fuzhou-quanzhou", fromCityId: "fuzhou", toCityId: "quanzhou", progress: 0.46 },
+  { id: "jiangdong-escort", name: "江东忠义行", kind: "rival", faction: "song", routeId: "zhenjiang-jiankang", fromCityId: "zhenjiang", toCityId: "jiankang", progress: 0.28 },
+  { id: "shuchuan-escort", name: "蜀川通远行", kind: "rival", faction: "song", routeId: "chengdu-lizhou", fromCityId: "chengdu", toCityId: "lizhou", progress: 0.62 },
   { id: "chuanxia-tea", name: "川峡茶帮", kind: "merchant", faction: "neutral", routeId: "chengdu-lizhou", fromCityId: "chengdu", toCityId: "lizhou", progress: 0.38 },
   { id: "dali-horse", name: "大理茶马行", kind: "merchant", faction: "dali", routeId: "dali-chengdu", fromCityId: "dali", toCityId: "chengdu", progress: 0.68 },
   { id: "song-jinghu-relief", name: "京湖制置司援军", kind: "army", faction: "song", routeId: "xiangyang-ezhou", fromCityId: "ezhou", toCityId: "xiangyang", progress: 0.34 },
@@ -92,6 +101,13 @@ export interface WorldActorAdvanceResult {
   actors: WorldActor[];
   rngState: number;
   news: string[];
+  arrivals: WorldActorArrival[];
+}
+
+export interface WorldActorArrival {
+  actorId: string;
+  cityId: string;
+  routeId: string;
 }
 
 export function advanceWorldActors(
@@ -102,6 +118,7 @@ export function advanceWorldActors(
 ): WorldActorAdvanceResult {
   let state = rngState;
   const news: string[] = [];
+  const arrivedActors: WorldActorArrival[] = [];
   const moved = actors.map((source) => {
     let actor = { ...source, progress: Math.max(0, Math.min(0.999999, source.progress)) };
     let remainingDays = Math.max(0, elapsedDays);
@@ -119,6 +136,7 @@ export function advanceWorldActors(
 
       remainingDays -= daysToArrival;
       const arrivedCityId = actor.toCityId;
+      arrivedActors.push({ actorId: actor.id, cityId: arrivedCityId, routeId: actor.routeId });
       const candidates = actor.kind === "army"
         ? armyRoutesAtCity(actor, arrivedCityId, actor.routeId, cities)
         : routesAtCity(arrivedCityId, actor.routeId);
@@ -127,7 +145,9 @@ export function advanceWorldActors(
         arrivals += 1;
         continue;
       }
-      const picked = pickRandom(state, candidates);
+      const picked = INDEPENDENT_ROUTE_ACTORS.has(actor.id)
+        ? { value: candidates[independentRouteIndex(actor.id, arrivals, candidates.length)], state }
+        : pickRandom(state, candidates);
       state = picked.state;
       const nextRoute = picked.value;
       actor = {
@@ -145,7 +165,7 @@ export function advanceWorldActors(
     return actor;
   });
 
-  return { actors: moved, rngState: state, news };
+  return { actors: moved, rngState: state, news, arrivals: arrivedActors };
 }
 
 export function normalizeWorldActors(value: unknown): WorldActor[] {
@@ -175,8 +195,8 @@ export function normalizeWorldActors(value: unknown): WorldActor[] {
   });
   if (!normalized.length) return createInitialWorldActors();
   const result = [...normalized];
-  for (const army of INITIAL_WORLD_ACTORS.filter((actor) => actor.kind === "army")) {
-    if (!result.some((actor) => actor.id === army.id)) result.push({ ...army });
+  for (const persistentActor of INITIAL_WORLD_ACTORS.filter((actor) => actor.kind === "army" || actor.kind === "rival")) {
+    if (!result.some((actor) => actor.id === persistentActor.id)) result.push({ ...persistentActor });
   }
   return result;
 }

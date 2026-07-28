@@ -46,4 +46,22 @@ describe("city label decluttering", () => {
     const layout = layoutCityLabels([station], { x: 0, y: 0, width: 200, height: 150 }, "wide", new Set());
     expect(layout.station.visible).toBe(false);
   });
+
+  it("routes pinned labels around weather, road-state and traveler overlays", () => {
+    const current = city("current", "临安府", 120, 120);
+    const firstCandidateObstacle = [{ id: "weather", x: 120, y: 142, radius: 14 }];
+    const layout = layoutCityLabels(
+      [current],
+      { x: 40, y: 40, width: 220, height: 160 },
+      "mid",
+      new Set([current.id]),
+      [current],
+      new Set([current.id]),
+      firstCandidateObstacle,
+    );
+    const label = cityLabelBounds(current, layout.current, "mid");
+    const obstacle = { left: 106, right: 134, top: 128, bottom: 156 };
+    expect(layout.current.visible).toBe(true);
+    expect(overlaps(label, obstacle)).toBe(false);
+  });
 });

@@ -75,6 +75,7 @@ import { deputyBondRank } from "./core/deputyBondContent";
 import { frontlineSituation } from "./core/frontlineContent";
 import { weatherForCity } from "./core/weatherContent";
 import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from "./core/jianghuContent";
+import { rivalBureauViews, rivalRank } from "./core/rivalContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
 import { routeCandidateSeal, type MapRouteCandidate } from "./map/routeComparison";
@@ -537,6 +538,29 @@ function developmentSettlementPreview(game: GameState): GameState {
       equipmentReward,
       notes: ["镖封、暗记与内页均完好", "胜阵所得「神臂样弩」一件，已由军铺封藏送入器械架", "随行三人阅历各有增长"],
     },
+  };
+}
+
+function developmentRivalPreviewActive(): boolean {
+  if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+  return new URLSearchParams(window.location.search).get("rival-preview") === "all";
+}
+
+function developmentRivalPreviewGame(game: GameState): GameState {
+  if (!developmentRivalPreviewActive()) return game;
+  const preview = createInitialGame(1208, "linan-guild");
+  return {
+    ...preview,
+    day: 12,
+    phase: "map",
+    completedContracts: 5,
+    jianghuReputation: 34,
+    selectedCityId: preview.currentCityId,
+    rivalBureaus: preview.rivalBureaus.map((bureau) => bureau.id === "shunfeng-escort"
+      ? { ...bureau, reputation: 43, relation: 31, completedContracts: 9, lastReportDay: 11, lastReport: "与风云行合旗走过闽浙海路，昨日已在泉州交清海舶契券。" }
+      : bureau.id === "jiangdong-escort"
+        ? { ...bureau, reputation: 52, relation: -24, completedContracts: 13, setbacks: 2, lastReportDay: 12, lastReport: "在瓜洲渡与风云行争过一次头筹，今日仍护官仓铜料西上。" }
+        : { ...bureau, reputation: 28, relation: 11, completedContracts: 6, setbacks: 1, lastReportDay: 10, lastReport: "护送药商翻过金牛道，已在利州照约交人。" }),
   };
 }
 
@@ -1045,7 +1069,7 @@ function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
   const [previewRoutePlanId, setPreviewRoutePlanId] = useState<string | null>(null);
-  const [cityWorkspace, setCityWorkspace] = useState<CityWorkspaceTab>("contracts");
+  const [cityWorkspace, setCityWorkspace] = useState<CityWorkspaceTab>(() => developmentRivalPreviewActive() ? "overview" : "contracts");
   const [crewPreviewGame, setCrewPreviewGame] = useState<GameState | null>(developmentCrewPreviewGame);
   const [battlePreviewConfig] = useState<BattleConfig | null>(developmentBattleFixture);
   const sidePanelRef = useRef<HTMLElement>(null);
@@ -1063,7 +1087,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
+    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()) return;
     const handle = window.setTimeout(() => {
       saveGame(game).then(() => {
         setSavePulse(true);
@@ -1079,7 +1103,7 @@ function App() {
 
   useEffect(() => {
     if (!game) return;
-    setCityWorkspace(game.selectedCityId === game.currentCityId ? "contracts" : "overview");
+    setCityWorkspace(developmentRivalPreviewActive() ? "overview" : game.selectedCityId === game.currentCityId ? "contracts" : "overview");
   }, [game?.selectedCityId, game?.currentCityId]);
 
   useEffect(() => {
@@ -1161,12 +1185,12 @@ function App() {
   if (launch === "title" || !game) {
     return (
       <TitleScreen
-        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
+        hasSave={Boolean(savedGame) || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
         legacy={visibleLegacy}
         onNew={() => setLaunch("setup")}
         onContinue={() => {
           const source = savedGame ?? createInitialGame(1208, "linan-guild");
-          setGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source))))))))));
+          setGame(developmentRivalPreviewGame(developmentStopoverPreviewGame(developmentContractEventPreviewGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source)))))))))));
           setLaunch("game");
         }}
       />
@@ -1197,6 +1221,9 @@ function App() {
   const selectedStandingProgress = cityStandingProgress(selectedLocalReputation);
   const currentJianghuStanding = jianghuStanding(game.jianghuReputation);
   const currentJianghuProgress = jianghuStandingProgress(game.jianghuReputation);
+  const rivalViews = rivalBureauViews(game);
+  const playerRivalRank = rivalRank(game.jianghuReputation);
+  const playerLeaguePosition = 1 + rivalViews.filter((item) => item.bureau.reputation > game.jianghuReputation).length;
   const selectedFaction = FACTIONS[selectedState.owner];
   const selectedFactionRelation = game.relations[selectedState.owner] ?? 0;
   const selectedFactionStanding = factionStanding(selectedFactionRelation);
@@ -1420,6 +1447,45 @@ function App() {
                       {currentCareerObjective.status === "ready" ? currentCareerObjective.id === "renowned-escort" ? "落下终印" : "盖印领赏" : "条件未齐"}
                     </button>
                   </div>
+                </section>
+              )}
+
+              {isCurrentCity && cityWorkspace === "overview" && (
+                <section className="rival-league" aria-label="天下镖行榜">
+                  <header className="rival-league-heading">
+                    <div><small>天下同行 · 随道路真实行进</small><b>天下镖行榜</b><p>别家也在接镖、交割和失期；途中相逢会留下关系与名次。</p></div>
+                    <span><i>榜</i><strong>第 {playerLeaguePosition}</strong><small>/ {rivalViews.length + 1} 席</small></span>
+                  </header>
+                  <article className="rival-player-row">
+                    <i>風</i>
+                    <div><small>本号 · {playerRivalRank.label}</small><b>风云镖局</b><span>已成交 {game.completedContracts} 镖 · 江湖名望 {game.jianghuReputation}</span></div>
+                    <em><span style={{ width: `${Math.max(4, game.jianghuReputation)}%` }} /></em>
+                    <strong>当前第 {playerLeaguePosition} 席</strong>
+                  </article>
+                  <div className="rival-league-list">
+                    {rivalViews.map((item) => (
+                      <article key={item.bureau.id} className={`rival-league-row relation-${item.relation.tone}`}>
+                        <span className="rival-place">{item.position}</span>
+                        <i className="rival-seal">{item.bureau.seal}</i>
+                        <div className="rival-identity">
+                          <small>{item.rank.label} · 名望 {item.bureau.reputation}</small>
+                          <b>{item.bureau.name}</b>
+                          <em>{item.bureau.specialty}</em>
+                        </div>
+                        <div className="rival-route-progress">
+                          <span><small>{item.routeName}</small><b>{item.pathLabel}</b></span>
+                          <i><em style={{ width: `${item.progress}%` }} /></i>
+                          <small>{item.actor ? `已行 ${item.progress}% · 约 ${item.etaDays} 日抵站` : "行踪未明"}</small>
+                        </div>
+                        <div className="rival-record">
+                          <span className={`rival-relation relation-${item.relation.tone}`}><i>{item.relation.seal}</i>{item.relation.label}<small>{item.bureau.relation >= 0 ? "+" : ""}{item.bureau.relation}</small></span>
+                          <b>{item.bureau.completedContracts} 成 · {item.bureau.setbacks} 失</b>
+                        </div>
+                        <p><small>第 {item.bureau.lastReportDay} 日行报</small>{item.bureau.lastReport}</p>
+                      </article>
+                    ))}
+                  </div>
+                  <footer><span>同行抵站才会结算一趟生意</span><small>合旗增交情 · 争先伤和气 · 放大地图可追看镖旗</small></footer>
                 </section>
               )}
 

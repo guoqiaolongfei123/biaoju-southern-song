@@ -36,6 +36,7 @@ export type EquipmentId = "jujube-spear" | "yanling-sabre" | "arm-crossbow" | "l
 export type HandoffChoice = "original" | "authority" | "covert";
 export type TradeGoodId = "silk" | "tea" | "salt" | "spice" | "ironware" | "grain" | "books" | "medicine" | "hide";
 export type WorldActorKind = "merchant" | "patrol" | "rival" | "army";
+export type RivalBureauId = "shunfeng-escort" | "jiangdong-escort" | "shuchuan-escort";
 
 export interface CityDefinition {
   id: string;
@@ -130,6 +131,22 @@ export interface WorldActor {
   fromCityId: string;
   toCityId: string;
   progress: number;
+}
+
+export interface RivalBureauState {
+  id: RivalBureauId;
+  actorId: string;
+  name: string;
+  seal: string;
+  homeCityId: string;
+  specialty: string;
+  motto: string;
+  reputation: number;
+  relation: number;
+  completedContracts: number;
+  setbacks: number;
+  lastReport: string;
+  lastReportDay: number;
 }
 
 export interface OfficeState {
@@ -424,7 +441,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 20;
+  version: 21;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;
@@ -445,6 +462,7 @@ export interface GameState {
   routeIntel: Record<string, RouteIntelState>;
   routeStates: Record<string, RouteState>;
   worldActors: WorldActor[];
+  rivalBureaus: RivalBureauState[];
   offices: Record<string, OfficeState>;
   contracts: Contract[];
   convoy: ConvoyState;
