@@ -2035,7 +2035,7 @@ function App() {
                 ))}
               </div>
               <div className="journey-details">
-                <p><span>镖头武学</span><b>{activeMartialArt.name} · {activeMartialArt.technique}</b></p>
+                <p className="journey-detail-wide journey-martial"><span>镖头武学</span><b>{activeMartialArt.name} · {activeMartialArt.technique}</b></p>
                 {(() => {
                   const routeId = game.journey!.plan.routeIds[game.journey!.segmentIndex];
                   const forecast = segmentTravelForecast(game, routeId);
@@ -2046,15 +2046,23 @@ function App() {
                 {landmark && landmarkKind && <p className="journey-landmark"><span>沿途要点</span><b><i>{landmarkKind.seal}</i>{landmark.name}<small>{landmarkKind.label} · {landmark.service}</small></b></p>}
                 <p><span>预计耗时</span><b>{forecast.days} 日</b></p>
                 <p><span>地形</span><b>{TERRAIN_LABEL[routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).terrain]}</b></p>
-                <p><span>当前天候</span><b className={`journey-weather weather-${forecast.weather.kind}`}>{forecast.weather.seal} · {forecast.weather.label}<small>{forecast.weatherEffect.note}</small></b></p>
+                <p className="journey-detail-wide journey-weather-row"><span>当前天候</span><b className={`journey-weather weather-${forecast.weather.kind}`}>{forecast.weather.seal} · {forecast.weather.label}<small>{forecast.weatherEffect.note}</small></b></p>
                 {activeSpecialHandling && <p className="journey-special-rule"><span>特镖规程</span><b><i>{activeSpecialHandling.seal}</i>{activeSpecialHandling.name}<small>{activeSpecialHandling.rule}</small></b></p>}
                 <p><span>行程方略</span><b className={`journey-stance stance-${journeyStance.id}`}>{journeyStance.seal} · {journeyStance.title}</b></p>
                 <p><span>过关身份</span><b className={`journey-cover cover-${journeyCover.id}`}>{journeyCover.seal} · {journeyCover.title}{game.journey!.coverBlown ? "（已败露）" : ""}</b></p>
                 <p><span>车马耗用</span><b>粮 {forecast.supplyCost} · 马力 {forecast.staminaCost}</b></p>
-                {activeTradeGood && <p><span>随车副货</span><b>{activeTradeGood.seal} · {activeTradeGood.name}（本钱 {game.journey!.tradeLot!.purchasePrice} 两）</b></p>}
+                {activeTradeGood && <p className="journey-detail-wide"><span>随车副货</span><b>{activeTradeGood.seal} · {activeTradeGood.name}（本钱 {game.journey!.tradeLot!.purchasePrice} 两）</b></p>}
                 </>;
                 })()}
               </div>
+              <div className="journey-march-summary" aria-label="本程出发状态">
+                <span><small>随行</small><b>{game.journey.crewIds.length} 人可战</b></span>
+                <span className={Math.min(game.convoy.cartHp, game.convoy.horseHp) < 55 ? "is-warning" : ""}><small>车马</small><b>{Math.min(game.convoy.cartHp, game.convoy.horseHp)} 分</b></span>
+                <span className={(activeContract?.kind === "escort" ? game.journey.escortHealth ?? 100 : game.convoy.cargoIntegrity) < 55 ? "is-warning" : ""}><small>{cargoGaugeLabel}</small><b>{activeContract?.kind === "escort" ? game.journey.escortHealth ?? 100 : game.convoy.cargoIntegrity} 分</b></span>
+                <span className={game.convoy.morale < 45 ? "is-warning" : ""}><small>士气</small><b>{game.convoy.morale}</b></span>
+              </div>
+              <button className="primary-button journey-button" onClick={() => setGame(advanceTravel(game))}>{journeyStance.advanceVerb} <span>→</span></button>
+              <p className="button-footnote">{journeyStance.travelNote}</p>
               <div className="journey-crew">
                 {game.journey.crewIds.map((id) => {
                   const member = game.crew.find((item) => item.id === id)!;
@@ -2072,8 +2080,6 @@ function App() {
                 <Gauge label={cargoGaugeLabel} value={activeContract?.kind === "escort" ? game.journey.escortHealth ?? 100 : game.convoy.cargoIntegrity} danger />
                 <Gauge label="士气" value={game.convoy.morale} />
               </div>
-              <button className="primary-button journey-button" onClick={() => setGame(advanceTravel(game))}>{journeyStance.advanceVerb} <span>→</span></button>
-              <p className="button-footnote">{journeyStance.travelNote}</p>
             </div>
           )}
         </aside>
