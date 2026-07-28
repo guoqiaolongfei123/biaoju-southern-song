@@ -699,6 +699,15 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .contract-card > p { margin: 0; color: #938874; font-size: 10px; }
 .contract-meta { display: flex; gap: 11px; margin: 10px 0; color: #a99c83; font-size: 8px; flex-wrap: wrap; }
 .contract-meta b { color: var(--gold-bright); font-size: 13px; }
+.contract-negotiation { margin: 9px 0; padding: 9px 10px; border: 1px solid rgba(177,139,72,.25); border-left: 3px solid #96733b; background: linear-gradient(108deg, rgba(126,88,37,.13), rgba(12,10,7,.12)); }
+.contract-negotiation > header { display: grid; grid-template-columns: minmax(0,1fr) auto; align-items: center; gap: 8px; padding-bottom: 7px; border-bottom: 1px solid rgba(204,168,91,.12); }
+.contract-negotiation > header > span { min-width: 0; display: grid; gap: 1px; }.contract-negotiation > header small { color: #837258; font-size: 10px; letter-spacing: .06em; }.contract-negotiation > header b { overflow: hidden; color: #ceb783; font: 15px var(--font-display); text-overflow: ellipsis; white-space: nowrap; }
+.contract-negotiation > header > em { display: grid; justify-items: end; color: #d3b46d; font: 19px var(--font-display); font-style: normal; line-height: 1; }.contract-negotiation > header > em small { margin-top: 3px; color: #746854; font: 9px var(--font-body); }
+.contract-negotiation > p { margin: 7px 0 !important; color: #81735e !important; font-size: 10px !important; line-height: 1.45; }
+.contract-negotiation-options { display: grid; grid-template-columns: repeat(3,minmax(0,1fr)); gap: 5px; }
+.contract-negotiation-options button { min-width: 0; min-height: 58px; display: grid; grid-template-columns: 24px minmax(0,1fr); align-items: center; gap: 3px 6px; padding: 6px; color: #c8ad70; border: 1px solid rgba(194,151,68,.22); background: rgba(129,85,30,.08); text-align: left; cursor: pointer; }
+.contract-negotiation-options button > i { grid-row: 1 / 3; width: 23px; height: 27px; display: grid; place-items: center; color: #d1b36f; border: 2px double rgba(190,143,56,.42); font: 14px var(--font-display); font-style: normal; transform: rotate(-2deg); }.contract-negotiation-options button > span { min-width: 0; display: grid; gap: 1px; }.contract-negotiation-options button b { font: 12px var(--font-display); }.contract-negotiation-options button small { overflow: hidden; color: #89795f; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }.contract-negotiation-options button > em { grid-column: 2; color: #987d49; font-size: 9px; font-style: normal; }.contract-negotiation-options button:hover:not(:disabled) { color: #1e160d; border-color: #d1ac62; background: #c4a35d; }.contract-negotiation-options button:hover:not(:disabled) i, .contract-negotiation-options button:hover:not(:disabled) small, .contract-negotiation-options button:hover:not(:disabled) em { color: #382712; border-color: #73501f; }.contract-negotiation-options button:disabled { opacity: .36; cursor: not-allowed; }
+.contract-negotiation.is-completed { border-left-color: #63806a; background: linear-gradient(108deg, rgba(69,104,78,.13), rgba(12,10,7,.12)); }.contract-negotiation-result { display: grid; grid-template-columns: 29px minmax(0,1fr) auto; align-items: center; gap: 7px; padding-top: 8px; }.contract-negotiation-result > i { width: 27px; height: 31px; display: grid; place-items: center; color: #8ead95; border: 2px double rgba(103,149,115,.43); font: 14px var(--font-display); font-style: normal; transform: rotate(-2deg); }.contract-negotiation-result > span { min-width: 0; display: grid; gap: 2px; }.contract-negotiation-result small { color: #718075; font-size: 9px; }.contract-negotiation-result b { color: #a9b99f; font-size: 11px; }.contract-negotiation-result > em { color: #8fa493; font-size: 10px; font-style: normal; white-space: nowrap; }
 .contract-board-leading { --forecast-accent: #80a088; display: grid; grid-template-columns: 38px minmax(0,1fr); align-items: center; gap: 10px; margin: 0 0 11px; padding: 10px 11px; border: 1px solid color-mix(in srgb, var(--forecast-accent) 35%, transparent); border-left: 3px solid color-mix(in srgb, var(--forecast-accent) 72%, transparent); background: linear-gradient(105deg, color-mix(in srgb, var(--forecast-accent) 12%, transparent), rgba(8,7,5,.14)); }
 .contract-board-leading.forecast-caution { --forecast-accent: #bf9854; }.contract-board-leading.forecast-danger { --forecast-accent: #bb6855; }
 .contract-board-leading > i { width: 36px; height: 42px; display: grid; place-items: center; color: color-mix(in srgb, var(--forecast-accent) 80%, #ead49c); border: 3px double color-mix(in srgb, var(--forecast-accent) 58%, transparent); font: 19px var(--font-display); font-style: normal; transform: rotate(-2deg); }
@@ -1442,6 +1451,16 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
   .crew-captivity-slip { grid-template-columns: 44px minmax(0,1fr); gap: 9px; }
   .crew-captivity-slip > i { width: 41px; height: 44px; }
   .crew-captivity-slip > div { grid-column: 2; justify-self: stretch; }
+}
+
+@media (max-width: 540px) {
+  .contract-negotiation-options { grid-template-columns: 1fr; }
+  .contract-negotiation-options button { min-height: 60px; grid-template-columns: 30px minmax(0,1fr) auto; gap: 4px 8px; padding: 8px; }
+  .contract-negotiation-options button > i { grid-row: 1 / 3; width: 28px; height: 32px; font-size: 15px; }
+  .contract-negotiation-options button > em { grid-column: 3; grid-row: 1 / 3; align-self: center; font-size: 11px; white-space: nowrap; }
+  .side-panel .contract-negotiation > header small, .side-panel .contract-negotiation > p, .side-panel .contract-negotiation-result small { font-size: 11px !important; }
+  .side-panel .contract-negotiation > header b, .side-panel .contract-negotiation-result b, .side-panel .contract-negotiation-options button b { font-size: 13px; }
+  .side-panel .contract-negotiation-options button small { font-size: 11px; }
 }
 
 /* Contextual road ledger: persistent route influence without extra map-icon clutter */

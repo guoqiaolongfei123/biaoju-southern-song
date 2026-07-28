@@ -51,7 +51,7 @@ export async function saveGame(game: GameState): Promise<void> {
 export function migrateSavedGame(value: unknown): GameState | null {
   if (!value || typeof value !== "object") return null;
   const saved = value as Record<string, unknown>;
-  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22 && saved.version !== 23) return null;
+  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20 && saved.version !== 21 && saved.version !== 22 && saved.version !== 23 && saved.version !== 24) return null;
   const legacy = value as unknown as GameState;
   if (!legacy.cities || !legacy.day) return null;
   const originId: OriginId = typeof saved.originId === "string" && saved.originId in ORIGINS ? saved.originId as OriginId : "linan-guild";
@@ -171,7 +171,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
     : Math.round((typeof saved.reputation === "number" ? saved.reputation : ORIGINS[originId].reputation) * 0.5));
   return {
     ...legacy,
-    version: 23,
+    version: 24,
     originId,
     legacyId,
     jianghuReputation,

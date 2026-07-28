@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { callInContactFavor, contactFavorOffer, createInitialGame } from "../src/core/game";
+import { acceptContract, callInContactFavor, contactFavorOffer, contractNegotiationOffer, createInitialGame, negotiateContract } from "../src/core/game";
 import { contactFavorTier, contactId, normalizeContacts, settleContractContact } from "../src/core/contactContent";
 import { ROUTES } from "../src/core/data";
 import { migrateSavedGame } from "../src/core/save";
@@ -29,7 +29,7 @@ describe("委托人人情", () => {
     expect(migrated[0]).toMatchObject({ name: "京湖制置司故吏", homeCityId: "xiangyang", patron: "official", favor: 14 });
     const oldSave = { ...createInitialGame(1107, "quanzhou-merchants"), version: 22, contacts: undefined };
     const hydrated = migrateSavedGame(oldSave);
-    expect(hydrated?.version).toBe(23);
+    expect(hydrated?.version).toBe(24);
     expect(hydrated?.contacts[0]).toMatchObject({ name: "四海茶行", homeCityId: "quanzhou", favor: 14 });
   });
 
@@ -57,6 +57,69 @@ describe("委托人人情", () => {
     expect(contactFavorOffer(used, contact.id)).toMatchObject({ enabled: false, cooldownDays: 7 });
     expect(callInContactFavor(used, contact.id)).toBe(used);
     expect(contactFavorOffer({ ...used, day: 8 }, contact.id)?.enabled).toBe(true);
+  });
+
+  it("熟客会回到本城镖榜，并可用人情择一改约后随镖单启程", () => {
+    const game = createInitialGame(1107);
+    const contact = game.contacts[0];
+    const contract = game.contracts.find((item) => item.client === contact.name);
+    expect(contract).toBeTruthy();
+    expect(contract?.patron).toBe(contact.patron);
+
+    const offer = contractNegotiationOffer(game, contract!.id);
+    expect(offer).toMatchObject({ completed: false, tierLabel: "熟面" });
+    expect(offer?.options.map((option) => option.id)).toEqual(["higher-reward", "extended-deadline", "reduced-penalty"]);
+    const originalReward = contract!.reward;
+    const changed = negotiateContract(game, contract!.id, "higher-reward");
+    const changedContract = changed.contracts.find((item) => item.id === contract!.id)!;
+    expect(changedContract.reward).toBe(Math.round(originalReward * 1.12));
+    expect(changedContract.negotiation).toMatchObject({ id: "higher-reward", favorCost: 6, before: originalReward, after: changedContract.reward });
+    expect(changed.contacts[0].favor).toBe(contact.favor - 6);
+    expect(contractNegotiationOffer(changed, contract!.id)).toMatchObject({ completed: true, options: [] });
+    expect(negotiateContract(changed, contract!.id, "extended-deadline")).toBe(changed);
+
+    const accepted = acceptContract(changed, contract!.id);
+    expect(accepted.phase).toBe("planning");
+    expect(accepted.journey?.contract.negotiation).toEqual(changedContract.negotiation);
+    expect(accepted.journey?.contract.reward).toBe(changedContract.reward);
+  });
+
+  it("宽限与减赔会修改真实条款，未到熟面则不能改约", () => {
+    const base = createInitialGame(1107);
+    const contact = base.contacts[0];
+    const contract = base.contracts.find((item) => item.client === contact.name)!;
+    const widened = negotiateContract(base, contract.id, "extended-deadline");
+    const widenedContract = widened.contracts.find((item) => item.id === contract.id)!;
+    expect(widenedContract.deadline).toBe(contract.deadline + 2);
+    expect(widenedContract.brief.startsWith(`${contract.deadline + 2}日内`)).toBe(true);
+    expect(widened.contacts[0].favor).toBe(contact.favor - 5);
+
+    const reduced = negotiateContract(createInitialGame(1107), contract.id, "reduced-penalty");
+    const reducedContract = reduced.contracts.find((item) => item.id === contract.id)!;
+    expect(reducedContract.failurePenalty).toBe(Math.max(1, Math.round(contract.failurePenalty * .75)));
+    expect(reduced.contacts[0].favor).toBe(contact.favor - 4);
+
+    const unfamiliar = { ...base, contacts: base.contacts.map((item) => ({ ...item, favor: 9 })) };
+    expect(contractNegotiationOffer(unfamiliar, contract.id)).toBeNull();
+    expect(negotiateContract(unfamiliar, contract.id, "higher-reward")).toBe(unfamiliar);
+  });
+
+  it("旧档会保留合法改约印记并剔除损坏数据", () => {
+    const base = createInitialGame(1107);
+    const contract = base.contracts.find((item) => item.client === base.contacts[0].name)!;
+    const negotiated = negotiateContract(base, contract.id, "higher-reward");
+    const migrated = migrateSavedGame({ ...negotiated, version: 23 });
+    expect(migrated?.version).toBe(24);
+    expect(migrated?.contracts.find((item) => item.id === contract.id)?.negotiation).toEqual(
+      negotiated.contracts.find((item) => item.id === contract.id)?.negotiation,
+    );
+
+    const broken = migrateSavedGame({
+      ...base,
+      version: 23,
+      contracts: base.contracts.map((item) => item.id === contract.id ? { ...item, negotiation: { id: "invented", contactId: 7 } } : item),
+    });
+    expect(broken?.contracts.find((item) => item.id === contract.id)?.negotiation).toBeUndefined();
   });
 
   it("官府、江湖、寺观和异邦请托分别影响路引、路报、伤员与行粮", () => {

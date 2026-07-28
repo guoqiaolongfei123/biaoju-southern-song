@@ -99,6 +99,18 @@ export interface Contract {
   secretKnown: boolean;
   secret: string;
   brief: string;
+  negotiation?: ContractNegotiation;
+}
+
+export type ContractNegotiationId = "higher-reward" | "extended-deadline" | "reduced-penalty";
+
+export interface ContractNegotiation {
+  id: ContractNegotiationId;
+  contactId: string;
+  favorCost: number;
+  day: number;
+  before: number;
+  after: number;
 }
 
 export interface LocalContact {
@@ -473,7 +485,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 23;
+  version: 24;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;

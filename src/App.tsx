@@ -24,8 +24,10 @@ import {
   hasActivePermit,
   horseTeamPurchaseCost,
   contractInvestigationCost,
+  contractNegotiationOffer,
   contactFavorOffer,
   investigateContract,
+  negotiateContract,
   investigateRoute,
   journeyDispositionOptions,
   localContacts,
@@ -85,7 +87,7 @@ import { updateRouteInfluence } from "./core/roadPowerContent";
 import { contactFavorTier, contactId, contactPatronProfile, MAX_CONTACT_FAVOR } from "./core/contactContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { JourneyDispositionId } from "./core/game";
-import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
+import type { BattleConfig, CareerEndingId, Contract, ContractNegotiationId, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
 import { routeCandidateSeal, type MapRouteCandidate } from "./map/routeComparison";
 import CrewEquipmentPanel from "./components/CrewEquipmentPanel";
 import LeaderProgressionPanel from "./components/LeaderProgressionPanel";
@@ -975,17 +977,20 @@ function ContractCard({
   assessment,
   onAccept,
   onInvestigate,
+  onNegotiate,
 }: {
   game: GameState;
   contract: Contract;
   assessment: ContractBoardAssessment;
   onAccept: (id: string) => void;
   onInvestigate: (id: string, method: "inquire" | "inspect") => void;
+  onNegotiate: (id: string, negotiationId: ContractNegotiationId) => void;
 }) {
   const destination = cityById(contract.to);
   const familiarContact = game.contacts.find((contact) => contact.id === contactId(contract.from, contract.patron, contract.client));
   const familiarTier = familiarContact ? contactFavorTier(familiarContact.favor) : null;
   const investigationCost = contractInvestigationCost(game);
+  const negotiation = contractNegotiationOffer(game, contract.id);
   const routeAvailable = assessment.plan !== null;
   const inspectVerb = contract.kind === "escort" ? "当面盘问" : contract.kind === "letter" ? "验看信封" : "验看镖物";
   return (
@@ -1002,6 +1007,26 @@ function ContractCard({
         <span>{contract.confidentiality}</span>
         <span>允损 {contract.allowedLoss}%</span>
       </div>
+      {negotiation && <section className={`contract-negotiation ${negotiation.completed ? "is-completed" : ""}`} aria-label={`${negotiation.contact.name}熟客改约`}>
+        <header>
+          <span><small>{negotiation.completed ? `条款已落印 · 余情${negotiation.tierLabel}` : `旧客商议 · ${negotiation.tierLabel}`}</small><b>{negotiation.contact.name}</b></span>
+          <em>{negotiation.contact.favor}<small>人情</small></em>
+        </header>
+        {negotiation.completed && negotiation.result ? <div className="contract-negotiation-result">
+          <i>{negotiation.result.seal}</i>
+          <span><small>条款已经落印，不可再改</small><b>{negotiation.result.label} · {negotiation.result.summary}</b></span>
+          <em>耗 {negotiation.result.cost}</em>
+        </div> : <>
+          <p>凭往日交情可择一项改约；落印后不可反悔。</p>
+          <div className="contract-negotiation-options">
+            {negotiation.options.map((option) => <button key={option.id} disabled={!option.enabled} onClick={() => onNegotiate(contract.id, option.id)} title={option.disabledReason ?? option.summary}>
+              <i>{option.seal}</i>
+              <span><b>{option.label}</b><small>{option.summary}</small></span>
+              <em>{option.enabled ? `耗 ${option.cost}` : option.disabledReason}</em>
+            </button>)}
+          </div>
+        </>}
+      </section>}
       <section className={`contract-forecast forecast-${assessment.tone}`} aria-label={`${contract.title}接镖前成行估算：${assessment.title}`}>
         <i>{assessment.seal}</i>
         <div className="contract-forecast-verdict">
@@ -1660,7 +1685,7 @@ function App() {
                     })()}
                     <div className="contracts-list">{contractBoardAssessments.map((assessment) => {
                       const contract = game.contracts.find((item) => item.id === assessment.contractId)!;
-                      return <ContractCard key={contract.id} game={game} contract={contract} assessment={assessment} onInvestigate={(id, method) => setGame(investigateContract(game, id, method))} onAccept={(id) => setGame(acceptContract(game, id))} />;
+                      return <ContractCard key={contract.id} game={game} contract={contract} assessment={assessment} onInvestigate={(id, method) => setGame(investigateContract(game, id, method))} onNegotiate={(id, negotiationId) => setGame(negotiateContract(game, id, negotiationId))} onAccept={(id) => setGame(acceptContract(game, id))} />;
                     })}</div>
                   </section>
                   <section id="city-pane-prepare" role="tabpanel" aria-labelledby="city-tab-prepare" className="city-workspace-pane" hidden={cityWorkspace !== "prepare"}>

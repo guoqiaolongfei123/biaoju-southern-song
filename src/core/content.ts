@@ -3,6 +3,8 @@ import type {
   Contract,
   ContractComplication,
   ContractKind,
+  ContractNegotiation,
+  ContractNegotiationId,
   ContractPatron,
   SpecialHandlingId,
 } from "./types";
@@ -368,8 +370,26 @@ export function isBorderSensitive(contract: Contract): boolean {
     || contract.complication === "double_deal";
 }
 
+const CONTRACT_NEGOTIATION_IDS = new Set<ContractNegotiationId>(["higher-reward", "extended-deadline", "reduced-penalty"]);
+
+function hydrateContractNegotiation(value: unknown): ContractNegotiation | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const raw = value as Partial<ContractNegotiation>;
+  if (typeof raw.id !== "string" || !CONTRACT_NEGOTIATION_IDS.has(raw.id as ContractNegotiationId)) return undefined;
+  if (typeof raw.contactId !== "string" || !raw.contactId) return undefined;
+  if (![raw.favorCost, raw.day, raw.before, raw.after].every((item) => typeof item === "number" && Number.isFinite(item))) return undefined;
+  return {
+    id: raw.id as ContractNegotiationId,
+    contactId: raw.contactId,
+    favorCost: Math.max(0, Math.round(raw.favorCost!)),
+    day: Math.max(1, Math.round(raw.day!)),
+    before: Math.max(0, Math.round(raw.before!)),
+    after: Math.max(0, Math.round(raw.after!)),
+  };
+}
+
 export function hydrateLegacyContract(contract: Contract): Contract {
-  if (contract.kind && contract.patron && typeof contract.secretKnown === "boolean") return contract;
+  if (contract.kind && contract.patron && typeof contract.secretKnown === "boolean") return { ...contract, negotiation: hydrateContractNegotiation(contract.negotiation) };
   if (contract.id === "opening-xiangyang") {
     return {
       ...contract,
@@ -383,6 +403,7 @@ export function hydrateLegacyContract(contract: Contract): Contract {
       clue: "三车药箱中只有头车用的是军中封蜡，箱底还比另外两车厚上一寸。",
       requirement: "封条不得损坏，也不得交由非宋官员检查。",
       secretKnown: false,
+      negotiation: hydrateContractNegotiation(contract.negotiation),
     };
   }
   const cargo = contract.cargo ?? "不明镖物";
@@ -403,5 +424,6 @@ export function hydrateLegacyContract(contract: Contract): Contract {
     clue: "旧镖单没有留下可供追查的细目。",
     requirement: contract.sealRequired ? "封条须保持完整。" : "保证人货按期抵达。",
     secretKnown: false,
+    negotiation: hydrateContractNegotiation(contract.negotiation),
   };
 }

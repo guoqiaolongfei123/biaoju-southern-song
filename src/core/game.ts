@@ -66,7 +66,7 @@ import { PLAYER_LEADER_ID, createInitialLeader } from "./leaderContent";
 import { deputyBondRank } from "./deputyBondContent";
 import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusContent";
 import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
-import { contactFavorTier, contactPatronProfile, createInitialContacts, settleContractContact } from "./contactContent";
+import { contactFavorTier, contactId, contactPatronProfile, createInitialContacts, settleContractContact } from "./contactContent";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import { contractIncidentEvent } from "./contractIncidentContent";
 import {
@@ -94,6 +94,7 @@ import type {
   CityStatus,
   CoreCombatFocusId,
   Contract,
+  ContractNegotiationId,
   ConvoyUpgradeId,
   CrewMember,
   CrewDisciplineId,
@@ -889,6 +890,7 @@ export function generateContracts(
   factionRelation = 0,
   conduct?: ConductState,
   jianghuReputation = 0,
+  contacts: readonly LocalContact[] = [],
 ): { contracts: Contract[]; rngState: number } {
   const destinations = CITIES.filter((city) => city.id !== cityId && generateRoutePlans(cityId, city.id).length > 0);
   const contracts: Contract[] = includeOpening && cityId === "linan" ? [INITIAL_CONTRACT] : [];
@@ -900,6 +902,9 @@ export function generateContracts(
   const principleState = { conduct: conduct ?? createConductState() };
   const favorsLivingCargo = hasPrinciple(principleState, "living-promise");
   const favorsSealedCargo = hasPrinciple(principleState, "sealed-oath");
+  const returningContact = contacts
+    .filter((contact) => contact.homeCityId === cityId && contact.favor > 0)
+    .sort((a, b) => b.favor - a.favor || b.completedJobs - a.completedJobs || a.id.localeCompare(b.id))[0];
 
   while (contracts.length < limit && attempts < 40) {
     attempts += 1;
@@ -910,11 +915,20 @@ export function generateContracts(
     const sameKind = CONTRACT_TEMPLATES.filter((template) => template.kind === desiredKind);
     const principlePreferred = favorsSealedCargo ? sameKind.filter((template) => template.sealRequired) : [];
     const statusPreferred = (principlePreferred.length ? principlePreferred : sameKind).filter((template) => preferredIds.has(template.id));
-    const templatePick = pickRandom(state, statusPreferred.length ? statusPreferred : principlePreferred.length ? principlePreferred : sameKind);
+    const normalPool = statusPreferred.length ? statusPreferred : principlePreferred.length ? principlePreferred : sameKind;
+    const useReturningContact = Boolean(returningContact) && !contracts.some((contract) => contract.client === returningContact!.name && contract.patron === returningContact!.patron);
+    const returningPreferred = useReturningContact ? normalPool.filter((template) => template.patron === returningContact!.patron) : [];
+    const returningSameKind = useReturningContact ? sameKind.filter((template) => template.patron === returningContact!.patron) : [];
+    const returningAnyKind = useReturningContact ? CONTRACT_TEMPLATES.filter((template) => template.patron === returningContact!.patron) : [];
+    const templatePool = useReturningContact
+      ? returningPreferred.length ? returningPreferred : returningSameKind.length ? returningSameKind : returningAnyKind
+      : normalPool;
+    const templatePick = pickRandom(state, templatePool);
     state = templatePick.state;
     const template = templatePick.value;
     const clientPick = pickRandom(state, CLIENTS_BY_PATRON[template.patron]);
     state = clientPick.state;
+    const client = useReturningContact ? returningContact!.name : clientPick.value;
     const rewardRoll = randomInt(state, 54, 104);
     state = rewardRoll.state;
     const danger = minDirectDanger(cityId, destinationPick.value.id);
@@ -932,7 +946,7 @@ export function generateContracts(
       to: destinationPick.value.id,
       title: template.title,
       cargo: template.cargo,
-      client: clientPick.value,
+      client,
       reward: Math.round((rewardRoll.value + distanceBonus * 8 + template.rewardBonus) * rewardMultiplier * patronRewardMultiplier),
       deadline,
       risk: riskLabel(danger + complicationRisk(template.complication)),
@@ -967,13 +981,14 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const openingCount = contractCountForCity(cities[headquartersCityId], true, cityReputation[headquartersCityId]);
   const rulingFaction = cities[headquartersCityId].owner;
   const jianghuReputation = clampJianghuReputation(origin.jianghuReputation + legacy.jianghuReputation);
-  const generated = generateContracts(headquartersCityId, 1, seed | 0, origin.includeOpeningContract, openingCount, cities[headquartersCityId], cityReputation[headquartersCityId], relations[rulingFaction], undefined, jianghuReputation);
+  const contacts = createInitialContacts(originId);
+  const generated = generateContracts(headquartersCityId, 1, seed | 0, origin.includeOpeningContract, openingCount, cities[headquartersCityId], cityReputation[headquartersCityId], relations[rulingFaction], undefined, jianghuReputation, contacts);
   const crew = createInitialCrew().map((member) => ({ ...member, experience: (origin.crewExperience[member.id] ?? member.experience) + legacy.crewExperience }));
   const localEffect = cityStatusEffect(cities[headquartersCityId]);
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 23,
+    version: 24,
     seed,
     originId,
     legacyId,
@@ -997,7 +1012,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
     rivalBureaus: createInitialRivalBureaus(),
     offices: createInitialOffices(cities, headquartersCityId),
     contracts: generated.contracts,
-    contacts: createInitialContacts(originId),
+    contacts,
     convoy: { leaderHp: 100, guardsFit: 3, cartHp: 100, cargoIntegrity: 100, sealIntact: true, morale: Math.min(100, origin.morale + legacy.morale), ...DEFAULT_CONVOY_EQUIPMENT, wagonId: origin.wagonId, horseTeamId: origin.horseTeamId, upgrades: [...origin.upgrades] },
     martialArtId: DEFAULT_MARTIAL_ART,
     leader: createInitialLeader(),
@@ -1190,6 +1205,124 @@ export function investigateContract(game: GameState, contractId: string, method:
     contracts,
     news: [`【镖单查验】「${contract.title}」：${report}`, ...game.news].slice(0, 6),
   }, { investigations: 1 });
+}
+
+const CONTRACT_NEGOTIATION_TERMS: Record<ContractNegotiationId, { seal: string; label: string; cost: number; noun: string; unit: string }> = {
+  "higher-reward": { seal: "酬", label: "加酬", cost: 6, noun: "酬金", unit: "两" },
+  "extended-deadline": { seal: "期", label: "宽限", cost: 5, noun: "时限", unit: "日" },
+  "reduced-penalty": { seal: "赔", label: "减赔", cost: 4, noun: "失镖赔付", unit: "两" },
+};
+
+export interface ContractNegotiationOption {
+  id: ContractNegotiationId;
+  seal: string;
+  label: string;
+  cost: number;
+  before: number;
+  after: number;
+  summary: string;
+  enabled: boolean;
+  disabledReason: string | null;
+}
+
+export interface ContractNegotiationOffer {
+  contact: LocalContact;
+  tierLabel: string;
+  completed: boolean;
+  result: ContractNegotiationOption | null;
+  options: ContractNegotiationOption[];
+}
+
+function contractNegotiationNumbers(contract: Contract, id: ContractNegotiationId): { before: number; after: number } {
+  if (id === "higher-reward") return { before: contract.reward, after: Math.max(contract.reward + 1, Math.round(contract.reward * 1.12)) };
+  if (id === "extended-deadline") return { before: contract.deadline, after: contract.deadline + 2 };
+  return { before: contract.failurePenalty, after: Math.max(1, Math.round(contract.failurePenalty * .75)) };
+}
+
+function negotiationOption(
+  id: ContractNegotiationId,
+  before: number,
+  after: number,
+  favor: number,
+): ContractNegotiationOption {
+  const term = CONTRACT_NEGOTIATION_TERMS[id];
+  return {
+    id,
+    seal: term.seal,
+    label: term.label,
+    cost: term.cost,
+    before,
+    after,
+    summary: `${term.noun} ${before}→${after}${term.unit}`,
+    enabled: favor >= term.cost,
+    disabledReason: favor >= term.cost ? null : `还差 ${term.cost - favor} 人情`,
+  };
+}
+
+export function contractNegotiationOffer(game: GameState, contractId: string): ContractNegotiationOffer | null {
+  const contract = game.contracts.find((item) => item.id === contractId && item.from === game.currentCityId);
+  if (!contract) return null;
+  const contact = game.contacts.find((item) => item.id === contactId(contract.from, contract.patron, contract.client));
+  if (!contact) return null;
+  const tier = contactFavorTier(contact.favor);
+  if (!contract.negotiation && contact.favor < 10) return null;
+  if (contract.negotiation) {
+    return {
+      contact,
+      tierLabel: tier.label,
+      completed: true,
+      result: {
+        ...negotiationOption(contract.negotiation.id, contract.negotiation.before, contract.negotiation.after, contact.favor + contract.negotiation.favorCost),
+        cost: contract.negotiation.favorCost,
+      },
+      options: [],
+    };
+  }
+  const ids = Object.keys(CONTRACT_NEGOTIATION_TERMS) as ContractNegotiationId[];
+  return {
+    contact,
+    tierLabel: tier.label,
+    completed: false,
+    result: null,
+    options: ids.map((id) => {
+      const values = contractNegotiationNumbers(contract, id);
+      return negotiationOption(id, values.before, values.after, contact.favor);
+    }),
+  };
+}
+
+export function negotiateContract(game: GameState, contractId: string, negotiationId: ContractNegotiationId): GameState {
+  if (game.phase !== "map") return game;
+  const offer = contractNegotiationOffer(game, contractId);
+  const option = offer?.options.find((item) => item.id === negotiationId && item.enabled);
+  if (!offer || offer.completed || !option) return game;
+  const contract = game.contracts.find((item) => item.id === contractId)!;
+  const term = CONTRACT_NEGOTIATION_TERMS[negotiationId];
+  const negotiation = {
+    id: negotiationId,
+    contactId: offer.contact.id,
+    favorCost: option.cost,
+    day: game.day,
+    before: option.before,
+    after: option.after,
+  };
+  const changed: Contract = negotiationId === "higher-reward"
+    ? { ...contract, reward: option.after, negotiation }
+    : negotiationId === "extended-deadline"
+      ? { ...contract, deadline: option.after, brief: `${option.after}日内送抵${cityById(contract.to).name}。${contract.requirement}`, negotiation }
+      : { ...contract, failurePenalty: option.after, negotiation };
+  const contacts = game.contacts.map((contact) => contact.id === offer.contact.id ? {
+    ...contact,
+    favor: Math.max(0, contact.favor - option.cost),
+    lastDay: game.day,
+    lastNote: `为「${contract.title}」改成${term.label}条款，支用 ${option.cost} 点人情。`,
+  } : contact);
+  return {
+    ...game,
+    contacts,
+    contracts: game.contracts.map((item) => item.id === contractId ? changed : item),
+    news: [`【旧客改约】${offer.contact.name}应允「${contract.title}」${term.label}：${option.summary}，人情 -${option.cost}。`, ...game.news].slice(0, 6),
+  };
 }
 
 export function acceptContract(game: GameState, contractId: string): GameState {
@@ -1477,7 +1610,7 @@ export function establishOffice(game: GameState): GameState {
     const localReputation = next.cityReputation[next.currentCityId] ?? 0;
     const count = contractCountForCity(next.cities[next.currentCityId], true, localReputation);
     const localFaction = next.cities[next.currentCityId].owner;
-    const generated = generateContracts(next.currentCityId, next.day, next.rngState, false, count, next.cities[next.currentCityId], localReputation, next.relations[localFaction] ?? 0, next.conduct, next.jianghuReputation);
+    const generated = generateContracts(next.currentCityId, next.day, next.rngState, false, count, next.cities[next.currentCityId], localReputation, next.relations[localFaction] ?? 0, next.conduct, next.jianghuReputation, next.contacts);
     next = { ...next, contracts: generated.contracts, rngState: generated.rngState };
   }
   return next;
@@ -3638,7 +3771,7 @@ export function continueAfterSettlement(game: GameState): GameState {
   const standing = cityStanding(localReputation);
   const contractCount = contractCountForCity(cityState, majorOffice, localReputation);
   const localFaction = cityState.owner;
-  const generated = generateContracts(game.currentCityId, game.day, game.rngState, false, contractCount, cityState, localReputation, game.relations[localFaction] ?? 0, game.conduct, game.jianghuReputation);
+  const generated = generateContracts(game.currentCityId, game.day, game.rngState, false, contractCount, cityState, localReputation, game.relations[localFaction] ?? 0, game.conduct, game.jianghuReputation, game.contacts);
   const cityEffect = cityStatusEffect(cityState);
   const localRecruits = generateRecruitPool(game.currentCityId, cityById(game.currentCityId).tier, game.day, generated.rngState, game.crew.map((member) => member.id), cityEffect.recruitQuality + standing.recruitQuality, cityEffect.recruitCount);
   return {
