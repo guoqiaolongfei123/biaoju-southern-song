@@ -16,6 +16,7 @@ export type IntelFreshness = "fresh" | "aging" | "rumor";
 export type ContractKind = "cargo" | "letter" | "escort" | "special";
 export type SpecialHandlingId = "cold-chain" | "solemn" | "appointed" | "tracked";
 export type ContractPatron = "merchant" | "official" | "jianghu" | "temple" | "foreign";
+export type ContactFavorTier = "acquainted" | "familiar" | "trusted" | "sworn";
 export type ContractComplication = "none" | "contraband" | "wanted" | "military" | "fragile" | "double_deal";
 export type Confidentiality = "寻常" | "隐秘" | "绝密";
 export type WagonId = "covered-cart" | "swift-cart" | "armored-cart";
@@ -98,6 +99,20 @@ export interface Contract {
   secretKnown: boolean;
   secret: string;
   brief: string;
+}
+
+export interface LocalContact {
+  id: string;
+  name: string;
+  patron: ContractPatron;
+  homeCityId: string;
+  /** 可支用的人情，范围 0—60；请托会真实消耗。 */
+  favor: number;
+  completedJobs: number;
+  failedJobs: number;
+  lastDay: number;
+  lastCalledDay: number;
+  lastNote: string;
 }
 
 export interface RoutePlan {
@@ -458,7 +473,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 22;
+  version: 23;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;
@@ -482,6 +497,7 @@ export interface GameState {
   rivalBureaus: RivalBureauState[];
   offices: Record<string, OfficeState>;
   contracts: Contract[];
+  contacts: LocalContact[];
   convoy: ConvoyState;
   martialArtId: MartialArtId;
   leader: LeaderProgression;

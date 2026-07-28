@@ -11,6 +11,7 @@ import {
   cancelContractPlanning,
   chooseRoute,
   cityAidOffer,
+  callInContactFavor,
   claimCareerObjective,
   continueAfterSettlement,
   createInitialGame,
@@ -23,9 +24,11 @@ import {
   hasActivePermit,
   horseTeamPurchaseCost,
   contractInvestigationCost,
+  contactFavorOffer,
   investigateContract,
   investigateRoute,
   journeyDispositionOptions,
+  localContacts,
   officeActionOffer,
   purchaseService,
   purchaseTradeLot,
@@ -79,6 +82,7 @@ import { weatherForCity } from "./core/weatherContent";
 import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from "./core/jianghuContent";
 import { rivalBureauViews, rivalRank } from "./core/rivalContent";
 import { updateRouteInfluence } from "./core/roadPowerContent";
+import { contactFavorTier, contactId, contactPatronProfile, MAX_CONTACT_FAVOR } from "./core/contactContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { JourneyDispositionId } from "./core/game";
 import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
@@ -979,6 +983,8 @@ function ContractCard({
   onInvestigate: (id: string, method: "inquire" | "inspect") => void;
 }) {
   const destination = cityById(contract.to);
+  const familiarContact = game.contacts.find((contact) => contact.id === contactId(contract.from, contract.patron, contract.client));
+  const familiarTier = familiarContact ? contactFavorTier(familiarContact.favor) : null;
   const investigationCost = contractInvestigationCost(game);
   const routeAvailable = assessment.plan !== null;
   const inspectVerb = contract.kind === "escort" ? "当面盘问" : contract.kind === "letter" ? "验看信封" : "验看镖物";
@@ -986,7 +992,7 @@ function ContractCard({
     <article className={`contract-card contract-${contract.kind} ${contract.secretKnown ? "is-investigated" : ""}`}>
       <div className="contract-heading">
         <div><span className={`contract-kind kind-${contract.kind}`}>{CONTRACT_KIND_SEAL[contract.kind]}<i>{CONTRACT_KIND_LABEL[contract.kind]}</i></span><span className={`risk-badge risk-${contract.risk}`}>{contract.risk}</span></div>
-        <small>{CONTRACT_PATRON_LABEL[contract.patron]} · {contract.client}</small>
+        <small>{CONTRACT_PATRON_LABEL[contract.patron]} · {contract.client}{familiarContact && familiarTier && <em className={`contract-contact tier-${familiarTier.tier}`}> · {familiarTier.label} {familiarContact.favor}</em>}</small>
       </div>
       <h4>{contract.title}</h4>
       <p>{contract.cargo} · 至 {destination.name}</p>
@@ -1335,6 +1341,7 @@ function App() {
   const stopoverDispositions = game.currentEvent?.kind === "waystation" ? journeyDispositionOptions(game) : [];
   const currentOffice = game.offices[game.currentCityId];
   const officeOffer = officeActionOffer(game);
+  const currentContacts = localContacts(game);
   const aidOffer = cityAidOffer(game);
   const audienceOffer = factionAudienceOffer(game);
   const permitOffer = factionPermitOffer(game);
@@ -1609,6 +1616,37 @@ function App() {
                       </div>
                       {officeOffer.action !== "none" && <button disabled={!officeOffer.enabled} onClick={() => setGame(establishOffice(game))}>{officeOffer.label}</button>}
                     </div>
+                    <div className="section-rule"><span>本地人情 · {currentContacts.length} 位</span></div>
+                    <section className="contact-ledger" aria-label={`${currentCity.name}本地人情`}>
+                      <header>
+                        <i>情</i>
+                        <span><small>往来名帖 · 人情可支用</small><b>{currentContacts.length ? `${currentContacts[0].name}最为相熟` : "尚无可托之人"}</b></span>
+                        <em>{currentContacts.reduce((sum, contact) => sum + contact.favor, 0)}<small>总人情</small></em>
+                      </header>
+                      {currentContacts.length === 0 ? <p className="contact-empty">从本城接镖并完成交割后，托运人会把你的旗号记进人情簿。</p> : <div className="contact-list">
+                        {currentContacts.map((contact) => {
+                          const tier = contactFavorTier(contact.favor);
+                          const patron = contactPatronProfile(contact.patron);
+                          const offer = contactFavorOffer(game, contact.id)!;
+                          return <article key={contact.id} className={`contact-row tier-${tier.tier}`}>
+                            <i className="contact-seal">{patron.seal}</i>
+                            <div className="contact-copy">
+                              <small>{patron.label} · {tier.label} · 成 {contact.completedJobs}／失 {contact.failedJobs}</small>
+                              <b>{contact.name}</b>
+                              <em>{contact.lastNote}</em>
+                            </div>
+                            <div className="contact-favor" aria-label={`人情 ${contact.favor}，${tier.label}`}>
+                              <strong>{contact.favor}</strong><small>人情</small>
+                              <i><em style={{ width: `${(contact.favor / MAX_CONTACT_FAVOR) * 100}%` }} /></i>
+                            </div>
+                            <button disabled={!offer.enabled} title={offer.disabledReason ?? patron.actionDescription} onClick={() => setGame(callInContactFavor(game, contact.id))}>
+                              <i>{patron.actionSeal}</i><span><b>{patron.actionLabel}</b><small>{offer.enabled ? `耗 ${offer.cost} 人情 · ${patron.actionDescription}` : offer.disabledReason}</small></span>
+                            </button>
+                          </article>;
+                        })}
+                      </div>}
+                      <footer>甲、乙、丙等交镖会分别积累 12、7、2 点人情；失镖会伤及旧交。请托后需隔七日再开口。</footer>
+                    </section>
                   </section>
                   <section id="city-pane-contracts" role="tabpanel" aria-labelledby="city-tab-contracts" className="city-workspace-pane" hidden={cityWorkspace !== "contracts"}>
                     <div className="section-rule"><span>本城镖榜 · {game.contracts.length} 份</span></div>

@@ -44,7 +44,7 @@ describe("江湖声望", () => {
     const oldSave = { ...createInitialGame(1107), version: 19 } as unknown as Record<string, unknown>;
     delete oldSave.jianghuReputation;
     const migrated = migrateSavedGame(oldSave);
-    expect(migrated?.version).toBe(22);
+    expect(migrated?.version).toBe(23);
     expect(migrated?.jianghuReputation).toBe(Math.round(Number(oldSave.reputation) * 0.5));
   });
 });

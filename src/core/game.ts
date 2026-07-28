@@ -66,6 +66,7 @@ import { PLAYER_LEADER_ID, createInitialLeader } from "./leaderContent";
 import { deputyBondRank } from "./deputyBondContent";
 import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusContent";
 import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
+import { contactFavorTier, contactPatronProfile, createInitialContacts, settleContractContact } from "./contactContent";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import { contractIncidentEvent } from "./contractIncidentContent";
 import {
@@ -105,6 +106,7 @@ import type {
   HandoffChoice,
   HorseTeamId,
   LegacyId,
+  LocalContact,
   MartialArtId,
   OfficeState,
   OfficeTier,
@@ -455,6 +457,101 @@ function refreshOfficeIntel(game: GameState): GameState {
     for (const route of ROUTES) if (route.from === office.cityId || route.to === office.cityId) observedRoutes.add(route.id);
   }
   return observedRoutes.size ? { ...game, routeIntel: refreshedIntel(game, [...observedRoutes]) } : game;
+}
+
+export interface ContactFavorOffer {
+  contact: LocalContact;
+  cost: number;
+  cooldownDays: number;
+  enabled: boolean;
+  disabledReason: string | null;
+}
+
+export function localContacts(game: GameState, cityId = game.currentCityId): LocalContact[] {
+  return game.contacts
+    .filter((contact) => contact.homeCityId === cityId)
+    .sort((left, right) => right.favor - left.favor || right.lastDay - left.lastDay || left.name.localeCompare(right.name, "zh-CN"));
+}
+
+export function contactFavorOffer(game: GameState, contactId: string): ContactFavorOffer | null {
+  const contact = game.contacts.find((candidate) => candidate.id === contactId);
+  if (!contact) return null;
+  const profile = contactPatronProfile(contact.patron);
+  const cooldownDays = Math.max(0, 7 - (game.day - contact.lastCalledDay));
+  let disabledReason: string | null = null;
+  if (game.phase !== "map") disabledReason = "只可在城中请托";
+  else if (contact.homeCityId !== game.currentCityId) disabledReason = `须回${cityById(contact.homeCityId).name}`;
+  else if (cooldownDays > 0) disabledReason = `再等 ${cooldownDays} 日`;
+  else if (contact.favor < profile.cost) disabledReason = `尚缺 ${profile.cost - contact.favor} 人情`;
+  else if (contact.patron === "merchant" && game.supplies >= 24) disabledReason = "行粮已满";
+  else if (contact.patron === "temple") {
+    const companionsNeedRest = game.crew.some((member) => !member.captivity && member.hp < member.maxHp);
+    if (game.convoy.leaderHp >= 100 && game.convoy.morale >= 100 && !companionsNeedRest) disabledReason = "众人无须调息";
+  }
+  return { contact, cost: profile.cost, cooldownDays, enabled: disabledReason === null, disabledReason };
+}
+
+export function callInContactFavor(game: GameState, contactId: string): GameState {
+  const offer = contactFavorOffer(game, contactId);
+  if (!offer?.enabled) return game;
+  const contact = offer.contact;
+  const profile = contactPatronProfile(contact.patron);
+  const spentContact: LocalContact = {
+    ...contact,
+    favor: Math.max(0, contact.favor - offer.cost),
+    lastCalledDay: game.day,
+    lastDay: game.day,
+    lastNote: `第 ${game.day} 日支用「${profile.actionLabel}」。`,
+  };
+  let next: GameState = {
+    ...game,
+    contacts: game.contacts.map((candidate) => candidate.id === contact.id ? spentContact : candidate),
+  };
+  let result: string;
+  if (contact.patron === "merchant") {
+    const gained = Math.min(5, 24 - game.supplies);
+    next = { ...next, supplies: game.supplies + gained };
+    result = `行栈先记下账，替镖队装入 ${gained} 份干粮。`;
+  } else if (contact.patron === "official") {
+    const factionId = game.cities[game.currentCityId].owner;
+    const expiresDay = Math.max(game.day, game.travelPermits[factionId] ?? 0) + 5;
+    next = { ...next, travelPermits: { ...game.travelPermits, [factionId]: expiresDay } };
+    result = `${FACTIONS[factionId].name}路引已代验续期，可用至第 ${expiresDay} 日。`;
+  } else if (contact.patron === "jianghu") {
+    const routeIds = ROUTES.filter((route) => route.from === game.currentCityId || route.to === game.currentCityId).map((route) => route.id);
+    next = { ...next, routeIntel: refreshedIntel(game, routeIds) };
+    result = `本城 ${routeIds.length} 条出城道路的暗哨回报已经核清。`;
+  } else if (contact.patron === "temple") {
+    const crew = game.crew.map((member) => member.captivity ? member : { ...member, hp: Math.min(member.maxHp, member.hp + 20) });
+    const guardsFit = game.activeCrewIds.filter((id) => {
+      const member = crew.find((candidate) => candidate.id === id);
+      return Boolean(member && !member.captivity && member.hp >= 20);
+    }).length;
+    next = {
+      ...next,
+      crew,
+      convoy: {
+        ...game.convoy,
+        leaderHp: Math.min(100, game.convoy.leaderHp + 24),
+        morale: Math.min(100, game.convoy.morale + 7),
+        guardsFit,
+      },
+    };
+    result = "寺院腾出静舍与药灶，众人气血、士气都得了调养。";
+  } else {
+    const factionId = game.cities[game.currentCityId].owner;
+    const expiresDay = Math.max(game.day, game.travelPermits[factionId] ?? 0) + 3;
+    next = {
+      ...next,
+      supplies: Math.min(24, game.supplies + 3),
+      travelPermits: { ...game.travelPermits, [factionId]: expiresDay },
+    };
+    result = `借用外商队名帖补入行粮，${FACTIONS[factionId].name}路引续至第 ${expiresDay} 日。`;
+  }
+  return {
+    ...next,
+    news: [`【${profile.actionLabel}】${contact.name}应下请托：${result}余人情 ${spentContact.favor}（${contactFavorTier(spentContact.favor).label}）。`, ...next.news].slice(0, 6),
+  };
 }
 
 export function routePlanInsight(game: GameState, plan: RoutePlan): RoutePlanInsight {
@@ -876,7 +973,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 22,
+    version: 23,
     seed,
     originId,
     legacyId,
@@ -900,6 +997,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
     rivalBureaus: createInitialRivalBureaus(),
     offices: createInitialOffices(cities, headquartersCityId),
     contracts: generated.contracts,
+    contacts: createInitialContacts(originId),
     convoy: { leaderHp: 100, guardsFit: 3, cartHp: 100, cargoIntegrity: 100, sealIntact: true, morale: Math.min(100, origin.morale + legacy.morale), ...DEFAULT_CONVOY_EQUIPMENT, wagonId: origin.wagonId, horseTeamId: origin.horseTeamId, upgrades: [...origin.upgrades] },
     martialArtId: DEFAULT_MARTIAL_ART,
     leader: createInitialLeader(),
@@ -2627,6 +2725,12 @@ function settleJourney(game: GameState): GameState {
     notes.push(`副货「${tradeGood.name}」以 ${tradeCondition}% 成色售得 ${tradeRevenue} 两，${tradeProfit >= 0 ? `净赚 ${tradeProfit}` : `折本 ${Math.abs(tradeProfit)}`} 两`);
   }
   const grade: Settlement["grade"] = multiplier >= 0.95 ? "甲" : multiplier >= 0.65 ? "乙" : multiplier > 0 ? "丙" : "失镖";
+  const contactSettlement = settleContractContact(game.contacts ?? [], contract, grade, game.day);
+  const contactChange = contactSettlement.favorDelta === 0
+    ? `未能与${contract.client}新立人情`
+    : `与${contract.client}的人情 ${contactSettlement.favorDelta > 0 ? "+" : ""}${contactSettlement.favorDelta}`;
+  const tierChanged = contactSettlement.previousTier.tier !== contactSettlement.nextTier.tier;
+  notes.push(`${contactChange}，现余 ${contactSettlement.contact.favor}（${contactSettlement.nextTier.label}）${tierChanged ? `，往来由${contactSettlement.previousTier.label}转为${contactSettlement.nextTier.label}` : ""}`);
   const equipmentReward = equipmentRewardForDelivery(contract, grade, journey.battleVictories ?? 0, game.completedContracts);
   if (equipmentReward) {
     const item = EQUIPMENT[equipmentReward];
@@ -2718,6 +2822,7 @@ function settleJourney(game: GameState): GameState {
     reputation: Math.max(0, game.reputation + reputationChange),
     cityReputation,
     relations,
+    contacts: contactSettlement.contacts,
     cities: { ...game.cities, [contract.to]: destinationCity },
     crew: game.crew.map((member) => journey.crewIds.includes(member.id) ? { ...member, experience: member.experience + 1 } : member),
     equipmentStock: equipmentReward
@@ -2725,7 +2830,7 @@ function settleJourney(game: GameState): GameState {
       : game.equipmentStock,
     settlement,
     completedContracts: game.completedContracts + 1,
-    news: [`【${cityById(contract.to).name}】${settlement.title}，镖酬入账 ${reward} 两${tradeRevenue ? `，副货回银 ${tradeRevenue} 两` : ""}${compensation ? `，赔付 ${compensation} 两` : ""}${equipmentReward ? `，胜阵所得「${EQUIPMENT[equipmentReward].name}」已入器械架` : ""}。`, ...game.news].slice(0, 6),
+    news: [`【${cityById(contract.to).name}】${settlement.title}，镖酬入账 ${reward} 两${tradeRevenue ? `，副货回银 ${tradeRevenue} 两` : ""}${compensation ? `，赔付 ${compensation} 两` : ""}${equipmentReward ? `，胜阵所得「${EQUIPMENT[equipmentReward].name}」已入器械架` : ""}；${contactChange}。`, ...game.news].slice(0, 6),
   };
   const conductIncrements: Partial<ConductState> = {};
   if (helpfulDelivery && contract.sealRequired && !sealFailure) conductIncrements.intactSealedDeliveries = 1;
