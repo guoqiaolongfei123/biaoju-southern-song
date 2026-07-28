@@ -1,0 +1,12 @@
+node_modules/
+dist/
+.publish/
+*.tsbuildinfo
+.DS_Store
+Thumbs.db
+.env
+.env.*
+!.env.example
+.release.local.ps1
+*.tgz
+*.tar.gz
