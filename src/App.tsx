@@ -20,7 +20,6 @@ import {
   factionAudienceOffer,
   factionPermitOffer,
   generateRoutePlans,
-  hasKnownRoute,
   hasActivePermit,
   horseTeamPurchaseCost,
   contractInvestigationCost,
@@ -49,6 +48,7 @@ import {
   convoyUpgradePurchaseCost,
   wagonPurchaseCost,
 } from "./core/game";
+import { rankContractsForBoard, type ContractBoardAssessment } from "./core/contractBoard";
 import { CREW_CAPACITY, crewRank } from "./core/crewContent";
 import { cityStanding, cityStandingProgress, cityStatusEffect, contractCountForCity } from "./core/cityContent";
 import { cityActionPriority, type CityWorkspaceTab } from "./core/cityDashboard";
@@ -792,17 +792,19 @@ function NewGameScreen({ legacy, onBack, onBegin }: { legacy: LegacyState; onBac
 function ContractCard({
   game,
   contract,
+  assessment,
   onAccept,
   onInvestigate,
 }: {
   game: GameState;
   contract: Contract;
+  assessment: ContractBoardAssessment;
   onAccept: (id: string) => void;
   onInvestigate: (id: string, method: "inquire" | "inspect") => void;
 }) {
   const destination = cityById(contract.to);
   const investigationCost = contractInvestigationCost(game);
-  const routeAvailable = hasKnownRoute(game, contract.from, contract.to);
+  const routeAvailable = assessment.plan !== null;
   const inspectVerb = contract.kind === "escort" ? "当面盘问" : contract.kind === "letter" ? "验看信封" : "验看镖物";
   return (
     <article className={`contract-card contract-${contract.kind} ${contract.secretKnown ? "is-investigated" : ""}`}>
@@ -818,6 +820,22 @@ function ContractCard({
         <span>{contract.confidentiality}</span>
         <span>允损 {contract.allowedLoss}%</span>
       </div>
+      <section className={`contract-forecast forecast-${assessment.tone}`} aria-label={`${contract.title}接镖前成行估算：${assessment.title}`}>
+        <i>{assessment.seal}</i>
+        <div className="contract-forecast-verdict">
+          <small>账房试算 · {assessment.plan?.label ?? "无路可排"}</small>
+          <b>{assessment.title}</b>
+          <em>{assessment.summary}</em>
+        </div>
+        <strong>{assessment.rewardPerDay}<small>两／日</small></strong>
+        <dl>
+          <div><dt>脚程</dt><dd>{assessment.days ? `${assessment.days} 日` : "—"}</dd></div>
+          <div><dt>余限</dt><dd className={assessment.deadlineMargin < 0 ? "is-deficit" : assessment.deadlineMargin <= 2 ? "is-tight" : ""}>{assessment.deadlineMargin >= 0 ? `+${assessment.deadlineMargin}` : assessment.deadlineMargin} 日</dd></div>
+          <div><dt>路粮</dt><dd className={assessment.supplyBalance < 0 ? "is-deficit" : ""}>{assessment.supplyCost} 份{assessment.supplyBalance < 0 ? ` · 缺${Math.abs(assessment.supplyBalance)}` : ""}</dd></div>
+          <div><dt>边关</dt><dd>{assessment.borderSegments ? `${assessment.borderSegments} 处` : "不跨境"}</dd></div>
+        </dl>
+        <p><span>{assessment.intelLabel}路险 {assessment.knownDanger}</span><span>{assessment.weatherSummary}</span></p>
+      </section>
       <p className="contract-brief">{contract.brief}</p>
       <p className="contract-clue"><b>可疑征象</b>{contract.clue}</p>
       {contract.secretKnown && <div className="contract-secret"><span>底细已明</span><p>{contract.secret}</p><small>{contract.requirement}</small></div>}
@@ -1020,6 +1038,11 @@ function App() {
     if (!game?.journey) return [];
     return generateRoutePlans(game.journey.contract.from, game.journey.contract.to, game);
   }, [game?.journey?.contract.id, game?.routeIntel, game?.routeStates, game?.day, game?.seed]);
+
+  const contractBoardAssessments = useMemo(
+    () => game ? rankContractsForBoard(game, game.contracts) : [],
+    [game],
+  );
 
   const mapRouteCandidates = useMemo<MapRouteCandidate[]>(() => {
     if (!game || game.phase !== "planning") return [];
@@ -1347,7 +1370,17 @@ function App() {
                   <section id="city-pane-contracts" role="tabpanel" aria-labelledby="city-tab-contracts" className="city-workspace-pane" hidden={cityWorkspace !== "contracts"}>
                     <div className="section-rule"><span>本城镖榜 · {game.contracts.length} 份</span></div>
                     <div className="workspace-intro"><i>择</i><span><b>先看去处，再问信物</b><small>目的地、时限与可疑征象直接列在每张镖单上；访查不会替你接单。</small></span></div>
-                    <div className="contracts-list">{game.contracts.map((contract) => <ContractCard key={contract.id} game={game} contract={contract} onInvestigate={(id, method) => setGame(investigateContract(game, id, method))} onAccept={(id) => setGame(acceptContract(game, id))} />)}</div>
+                    {contractBoardAssessments[0] && (() => {
+                      const leading = game.contracts.find((contract) => contract.id === contractBoardAssessments[0].contractId)!;
+                      const assessment = contractBoardAssessments[0];
+                      return <section className={`contract-board-leading forecast-${assessment.tone}`} aria-label="当前车马最合适的镖单">
+                        <i>{assessment.seal}</i><span><small>镖榜校勘 · 相对最合现状</small><b>{leading.title} · 至{cityById(leading.to).name}</b><em>{assessment.title}；预计 {assessment.days} 日，日均镖酬 {assessment.rewardPerDay} 两。</em></span>
+                      </section>;
+                    })()}
+                    <div className="contracts-list">{contractBoardAssessments.map((assessment) => {
+                      const contract = game.contracts.find((item) => item.id === assessment.contractId)!;
+                      return <ContractCard key={contract.id} game={game} contract={contract} assessment={assessment} onInvestigate={(id, method) => setGame(investigateContract(game, id, method))} onAccept={(id) => setGame(acceptContract(game, id))} />;
+                    })}</div>
                   </section>
                   <section id="city-pane-prepare" role="tabpanel" aria-labelledby="city-tab-prepare" className="city-workspace-pane" hidden={cityWorkspace !== "prepare"}>
                     <div className="section-rule"><span>行前整备</span></div>
