@@ -16,7 +16,7 @@ function markerPriority(city: CityDefinition, pinned: Set<string>): number {
 function minimumSpacing(detail: MapDetail): number {
   if (detail === "wide") return 22;
   if (detail === "mid") return 11;
-  return 0;
+  return 10;
 }
 
 /**
@@ -29,8 +29,6 @@ export function detailedCityIds(
   detail: MapDetail,
   pinned: Set<string>,
 ): Set<string> {
-  if (detail === "close") return new Set(cities.map((city) => city.id));
-
   const spacing = minimumSpacing(detail);
   const detailed = new Set<string>();
   const accepted: CityDefinition[] = [];
@@ -43,7 +41,7 @@ export function detailedCityIds(
 
   for (const city of ordered) {
     const required = pinned.has(city.id) || city.tier === "capital";
-    const eligible = required || city.tier === "major";
+    const eligible = required || city.tier === "major" || detail === "close";
     if (!eligible) continue;
 
     const crowded = accepted.some((other) => Math.hypot(city.x - other.x, city.y - other.y) < spacing);

@@ -40,12 +40,14 @@ describe("progressive city markers", () => {
     expect(visible.has("station")).toBe(true);
   });
 
-  it("reveals more detail while zooming and every city at close range", () => {
+  it("reveals more detail while zooming without stacking close-range gates", () => {
     const wide = detailedCityIds(cities, "wide", new Set());
     const mid = detailedCityIds(cities, "mid", new Set());
     const close = detailedCityIds(cities, "close", new Set());
     expect(mid.size).toBeGreaterThanOrEqual(wide.size);
-    expect(close).toEqual(new Set(cities.map((item) => item.id)));
+    expect(close.size).toBeGreaterThanOrEqual(mid.size);
+    expect(close.has("station")).toBe(false);
+    expect(close.has("near-major")).toBe(true);
   });
 
   it("is deterministic regardless of input order", () => {

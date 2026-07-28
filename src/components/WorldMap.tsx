@@ -11,6 +11,7 @@ import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } 
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
 import { detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
+import { layoutMapActors, type MapIconObstacle } from "../map/mapIconLayout";
 import { politicalBorderCityIds, routeCrossesPoliticalBorder, routeOwners, splitQuadraticCurve } from "../map/politicalBorders";
 import { routeCandidateAnchorRouteId, routeCandidateCityRole, routeCandidateSeal, type MapRouteCandidate } from "../map/routeComparison";
 import {
@@ -45,6 +46,15 @@ const VIEW_BOXES: Record<MapFocus, MapViewport> = {
 };
 
 const terrainColor = { official: "#90774e", mountain: "#74543d", river: "#52787c" };
+const weatherMarkerOffset: Record<string, { x: number; y: number }> = {
+  "tibetan-plateau": { x: 0, y: 0 },
+  northwest: { x: -18, y: 11 },
+  "northern-plains": { x: 22, y: 10 },
+  "sichuan-basin": { x: -18, y: 13 },
+  "middle-yangtze": { x: -16, y: -14 },
+  "jiangnan-coast": { x: 20, y: 13 },
+  "southern-coast": { x: 18, y: 12 },
+};
 const mapPath = geoPath(chinaProjection);
 const eastAsiaLand = eastAsiaLandData as unknown as FeatureCollection<Geometry>;
 const preciseLandPath = mapPath(eastAsiaLand) ?? "";
@@ -151,6 +161,30 @@ function WorldActorGlyph({ kind }: { kind: WorldActorKind }) {
     <path className="actor-dark" d="M-6 1.7 H6 L4.9 5.1 H-4.9 Z" />
     <path className="actor-main" d="M-5.4 1.8 Q-4.1 -4.7 0 -5.5 Q4.1 -4.7 5.4 1.8 Z" />
     <path className="actor-accent" d="M-5.1 -1 H5.1 M0 -5.3 V1.5" />
+  </>;
+}
+
+function WeatherGlyph({ kind }: { kind: ReturnType<typeof regionalWeatherSnapshot>[number]["kind"] }) {
+  if (kind === "clear" || kind === "heat") return <>
+    <circle className="weather-symbol-main" r="3.7" />
+    <path d="M0 -8 V-5.8 M0 5.8 V8 M-8 0 H-5.8 M5.8 0 H8 M-5.6 -5.6 L-4 -4 M4 4 L5.6 5.6 M5.6 -5.6 L4 -4 M-4 4 L-5.6 5.6" />
+    {kind === "heat" && <path className="weather-symbol-accent" d="M-4.5 8 Q-1.5 4.6 0 8 Q1.5 4.6 4.5 8" />}
+  </>;
+  if (kind === "fog") return <>
+    <path className="weather-symbol-cloud" d="M-7 -1 Q-5 -6 -1.4 -4.7 Q1.1 -8 4 -4.5 Q7 -4 7.5 -1 Z" />
+    <path d="M-8 1.8 H5.5 M-5.5 5 H8 M-7.5 8 H3.5" />
+  </>;
+  if (kind === "gale") return <>
+    <path d="M-8 -3 H3.5 Q8 -3 6 -6 M-7 1 H7.5 Q10 1 8 4 M-8 5 H2.5 Q6 5 4 8" />
+  </>;
+  if (kind === "frost") return <>
+    <path d="M0 -8 V8 M-6.8 -4 L6.8 4 M6.8 -4 L-6.8 4 M0 -8 L-2 -6 M0 -8 L2 -6 M0 8 L-2 6 M0 8 L2 6" />
+  </>;
+  return <>
+    <path className="weather-symbol-cloud" d="M-8 0 Q-7 -5 -2.6 -4 Q0 -8 3.6 -4.6 Q7 -4.5 8 0 Z" />
+    {kind === "storm"
+      ? <path className="weather-symbol-accent" d="M1 1 L-2 6 H1 L-1 10 L5 4 H2.3 L4 1 Z" />
+      : <path d="M-5 2 L-7 7 M0 2 L-2 7 M5 2 L3 7" />}
   </>;
 }
 
@@ -285,6 +319,24 @@ export default function WorldMap({
     return priority(a.id) - priority(b.id) || a.y - b.y || a.id.localeCompare(b.id);
   }), [activeCityIds, borderCityIds, selectedCityId, game.currentCityId]);
   const compactCityCount = CITIES.length - detailedCities.size;
+  const actorLayout = useMemo(() => {
+    const points = game.worldActors.flatMap((actor) => {
+      const route = ROUTES.find((candidate) => candidate.id === actor.routeId);
+      if (!route) return [];
+      const point = pointOnRoute(route, actor.progress, actor.fromCityId);
+      return [{ id: actor.id, kind: actor.kind, x: point.x, y: point.y }];
+    });
+    const cityObstacles: MapIconObstacle[] = CITIES.map((city) => {
+      const glyphScale = CITY_GLYPH_SCALE[mapDetail][city.tier];
+      const radius = detailedCities.has(city.id)
+        ? (city.tier === "capital" ? 15 : city.tier === "major" ? 12 : 6.5) * glyphScale + 2.2
+        : mapDetail === "wide" ? 5.2 : mapDetail === "mid" ? 4 : 3.2;
+      return { id: city.id, x: city.x, y: city.y, radius };
+    });
+    return layoutMapActors(points, cityObstacles, mapDetail);
+  }, [game.worldActors, mapDetail, detailedCities]);
+  const actorsById = useMemo(() => new Map(game.worldActors.map((actor) => [actor.id, actor])), [game.worldActors]);
+  const stackedActorGroups = actorLayout.filter((group) => group.actorIds.length > 1).length;
 
   function markerHitRadius(city: (typeof CITIES)[number]) {
     const minimum = mapDetail === "wide" ? 14 : mapDetail === "mid" ? 10 : 6.5;
@@ -459,7 +511,8 @@ export default function WorldMap({
       )}
       <div className="map-detail-readout" aria-live="polite">
         <b>{mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
-        <span>{detailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {borderRouteCount}处边路</span>
+          <span>{detailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {borderRouteCount}处边路</span>
+          {stackedActorGroups > 0 && <small>{stackedActorGroups}组同路行旅已合标 · 放大自动展开</small>}
         {selectedWeather && <small className={`weather-${selectedWeather.kind}`}>{selectedCity?.name} · {selectedWeather.seal}·{selectedWeather.label}</small>}
         {mapDetail !== "close" && <small>继续放大展开城池</small>}
       </div>
@@ -552,19 +605,15 @@ export default function WorldMap({
           ))}
         </g>
 
-        <g className={`weather-system weather-detail-${mapDetail}`} aria-label={`第${game.day}日天下区域天候`}>
+        <g className={`weather-atmosphere weather-detail-${mapDetail}`} aria-hidden="true">
           {regionalWeather.map((weather) => {
             const point = projectedLabel(...weather.region.center);
-            const scale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .64 : .38;
+            const scale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .72 : .5;
             return (
               <g key={weather.region.id} className={`weather-region weather-${weather.kind}`} transform={`translate(${point.x} ${point.y})`}>
                 <g transform={`scale(${scale})`}>
-                  <ellipse className="weather-wash" rx="48" ry="27" />
-                  <circle className="weather-token-paper" r="10.5" />
-                  <text className="weather-token-seal" y="3.4" textAnchor="middle">{weather.seal}</text>
-                  {mapDetail !== "close" && <text className="weather-region-label" y="18" textAnchor="middle">{weather.region.name} · {weather.label}</text>}
+                  <path className="weather-wash" d="M-46 4 Q-42 -18 -24 -15 Q-15 -31 3 -19 Q19 -31 29 -14 Q45 -13 47 5 Q38 21 19 17 Q5 27 -8 18 Q-29 27 -42 13 Z" />
                 </g>
-                <title>{weather.region.name} · 第 {game.day} 日 · {weather.label} · {weather.description}</title>
               </g>
             );
           })}
@@ -638,10 +687,32 @@ export default function WorldMap({
             return (
               <g key={route.id} className={`route route-${route.terrain} route-condition-${knownCondition} ${intelClass} ${active ? "is-active" : ""}`}>
                 <path className="route-hit" d={path} />
+                <path className="route-casing" d={path} />
                 <path className="route-line" d={path} stroke={active ? "#e0b85d" : terrainColor[route.terrain]} />
+                <path className="route-pattern" d={path} />
                 {active && <circle className="route-marker" cx={mx} cy={my} r="3.5" />}
                 {knownCondition !== "clear" && <g className={`route-condition-seal condition-${knownCondition} ${intelAge > 2 ? "is-stale" : ""}`} transform={`translate(${mx} ${my})`}><circle r="5" /><text y="2" textAnchor="middle">{conditionEffect.seal}</text></g>}
                 <title>{route.name} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
+              </g>
+            );
+          })}
+        </g>
+
+        <g className={`weather-system weather-detail-${mapDetail}`} aria-label={`第${game.day}日天下区域天候`}>
+          {regionalWeather.map((weather) => {
+            const point = projectedLabel(...weather.region.center);
+            const offset = weatherMarkerOffset[weather.region.id] ?? { x: 0, y: 0 };
+            const scale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .72 : .5;
+            return (
+              <g key={weather.region.id} className={`weather-region weather-${weather.kind}`} transform={`translate(${point.x + offset.x} ${point.y + offset.y})`}>
+                {(offset.x !== 0 || offset.y !== 0) && <path className="weather-anchor-line" d={`M0 0 L${-offset.x} ${-offset.y}`} />}
+                <g transform={`scale(${scale})`}>
+                  <path className="weather-cartouche" d="M-28 -12 Q0 -19 28 -12 L31 10 Q0 16 -31 10 Z" />
+                  <g className="weather-symbol" transform="translate(-13 -1)"><WeatherGlyph kind={weather.kind} /></g>
+                  <text className="weather-token-seal" x="11" y="3.2" textAnchor="middle">{weather.seal}</text>
+                  {mapDetail !== "close" && <text className="weather-region-label" y="23" textAnchor="middle">{weather.region.name} · {weather.label}</text>}
+                </g>
+                <title>{weather.region.name} · 第 {game.day} 日 · {weather.label} · {weather.description}</title>
               </g>
             );
           })}
@@ -675,27 +746,33 @@ export default function WorldMap({
         )}
 
         <g className={`world-actors actor-detail-${mapDetail}`}>
-          {game.worldActors.map((actor) => {
+          {actorLayout.map((layout) => {
+            const actor = actorsById.get(layout.primaryActorId);
+            if (!actor) return null;
             const route = ROUTES.find((candidate) => candidate.id === actor.routeId);
             if (!route) return null;
-            const point = pointOnRoute(route, actor.progress, actor.fromCityId);
             const actorScale = actor.kind === "army"
               ? mapDetail === "wide" ? 1.18 : mapDetail === "mid" ? 0.88 : 0.64
               : mapDetail === "wide" ? 1.05 : mapDetail === "mid" ? 0.76 : 0.54;
             const faction = FACTIONS[actor.faction];
             const effect = worldActorEffectLabel(actor, game.relations[actor.faction] ?? 0);
+            const members = layout.actorIds.map((id) => actorsById.get(id)).filter((member) => Boolean(member));
+            const actorNames = members.map((member) => member!.name).join("、");
+            const displaced = Math.hypot(layout.x - layout.anchorX, layout.y - layout.anchorY) > 1;
             return (
               <g
-                key={actor.id}
-                className={`world-actor actor-${actor.kind}`}
-                transform={`translate(${point.x} ${point.y})`}
+                key={layout.id}
+                className={`world-actor actor-${actor.kind} ${layout.actorIds.length > 1 ? "is-stack" : ""}`}
+                transform={`translate(${layout.x} ${layout.y})`}
                 role="img"
-                aria-label={`${actor.name}，正在${route.name}行进，${effect}`}
+                aria-label={`${actorNames}，正在附近道路行进${layout.actorIds.length > 1 ? `，共${layout.actorIds.length}队` : ""}`}
                 style={{ color: faction.color }}
               >
+                {displaced && <path className="actor-anchor-line" d={`M0 0 L${layout.anchorX - layout.x} ${layout.anchorY - layout.y}`} />}
                 <g transform={`scale(${actorScale})`}><WorldActorGlyph kind={actor.kind} /></g>
+                {layout.actorIds.length > 1 && <g className="actor-stack-count" transform={`translate(${7.4 * actorScale} ${-6.8 * actorScale})`}><circle r="4.3" /><text y="1.8" textAnchor="middle">{layout.actorIds.length}</text></g>}
                 {mapDetail === "close" && <text className="actor-name" y="-6.5" textAnchor="middle">{actor.name}</text>}
-                <title>{actor.name} · {route.name} · {effect}</title>
+                <title>{actorNames} · {route.name} · {effect}{layout.actorIds.length > 1 ? ` · 合并显示${layout.actorIds.length}队，放大后展开` : ""}</title>
               </g>
             );
           })}
@@ -817,6 +894,7 @@ export default function WorldMap({
         <span><i className="legend-faction xixia" />西夏</span>
         <span><i className="legend-faction dali" />大理</span>
         <span><i className="legend-line official" />官道</span>
+        <span><i className="legend-line mountain" />山路</span>
         <span><i className="legend-line river" />水路</span>
         <span><i className="legend-condition">异</i>路况</span>
         <span><i className="legend-traveler merchant" />商旅</span>
@@ -825,7 +903,8 @@ export default function WorldMap({
         <span><i className="legend-traveler rival" />同行镖队</span>
         <span><i className="legend-current-city">镖</i>镖队所在</span>
         <span><i className="legend-border-route">界</i>异旗边路</span>
-        <span><i className="legend-weather">候</i>区域天候</span>
+        <span><i className="legend-weather">雨</i>区域天候</span>
+        <span><i className="legend-stack">2</i>同路合标</span>
         <span><i className="legend-station-dot" />驿城标点</span>
         <span><i className="legend-capital" />都城</span>
       </div>
