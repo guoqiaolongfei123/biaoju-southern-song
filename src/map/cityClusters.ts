@@ -10,9 +10,9 @@ export interface CityMarkerCluster {
   radius: number;
 }
 
-const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 25, mid: 12, close: 7.5 };
-const CLUSTER_RADIUS: Record<MapDetail, number> = { wide: 7.8, mid: 5.6, close: 3.2 };
-const MAX_CLUSTER_SIZE: Record<MapDetail, number> = { wide: 6, mid: 4, close: 2 };
+const CLUSTER_DISTANCE: Record<MapDetail, number> = { wide: 50, mid: 26, close: 18 };
+const CLUSTER_RADIUS: Record<MapDetail, number> = { wide: 9.4, mid: 6.2, close: 3.8 };
+const MAX_CLUSTER_SIZE: Record<MapDetail, number> = { wide: 10, mid: 6, close: 5 };
 
 function cityPriority(city: CityDefinition): number {
   return city.tier === "capital" ? 3 : city.tier === "major" ? 2 : 1;

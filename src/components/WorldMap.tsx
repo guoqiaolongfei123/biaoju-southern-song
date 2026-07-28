@@ -360,6 +360,7 @@ export default function WorldMap({
 }: WorldMapProps) {
   const [focus, setFocus] = useState<MapFocus | null>("realm");
   const [mapLayer, setMapLayer] = useState<MapLayer>("overview");
+  const [expandedCityIds, setExpandedCityIds] = useState<string[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string | null>(null);
   const [hoveredRouteId, setHoveredRouteId] = useState<string | null>(null);
   const [viewport, setViewport] = useState<MapViewport>(VIEW_BOXES.realm);
@@ -395,10 +396,14 @@ export default function WorldMap({
   const selectedRouteOwners = selectedRoute ? routeOwners(game.cities, selectedRoute) : null;
   const selectedRouteActors = selectedRoute ? game.worldActors.filter((actor) => actor.routeId === selectedRoute.id) : [];
   const regionalWeather = useMemo(() => regionalWeatherSnapshot(game.seed, game.day), [game.seed, game.day]);
-  const visibleRegionalWeather = useMemo(
-    () => mapLayer === "weather" ? regionalWeather : regionalWeather.filter((weather) => weather.kind !== "clear"),
-    [regionalWeather, mapLayer],
-  );
+  const visibleRegionalWeather = useMemo(() => {
+    if (mapLayer === "weather") return regionalWeather;
+    if (mapLayer === "roads") return [];
+    return regionalWeather
+      .filter((weather) => weather.kind !== "clear")
+      .sort((a, b) => b.severity - a.severity || a.region.id.localeCompare(b.region.id))
+      .slice(0, 3);
+  }, [regionalWeather, mapLayer]);
   const activeCityIds = useMemo(() => new Set(game.journey?.plan.cityIds ?? []), [game.journey?.plan.id]);
   const routeCandidateSignature = routeCandidates.map((candidate) => candidate.id).join("|");
   const effectivePreviewId = routeCandidates.some((candidate) => candidate.id === previewRouteId) ? previewRouteId : routeCandidates[0]?.id ?? null;
@@ -408,7 +413,7 @@ export default function WorldMap({
   const mapDetail = mapDetailForViewportWidth(viewport.width);
   const zoomPercent = Math.round((VIEW_BOXES.realm.width / viewport.width) * 100);
   const officeCityIds = useMemo(() => Object.keys(game.offices), [game.offices]);
-  const pinnedCityIds = useMemo(() => new Set([selectedCityId, game.currentCityId, ...activeCityIds, ...candidateCityIds, ...officeCityIds]), [selectedCityId, game.currentCityId, activeCityIds, candidateCityIds, officeCityIds]);
+  const pinnedCityIds = useMemo(() => new Set([selectedCityId, game.currentCityId, ...activeCityIds, ...candidateCityIds, ...officeCityIds, ...expandedCityIds]), [selectedCityId, game.currentCityId, activeCityIds, candidateCityIds, officeCityIds, expandedCityIds]);
   const baselineDetailedCities = useMemo(() => detailedCityIds(CITIES, mapDetail, pinnedCityIds), [mapDetail, pinnedCityIds]);
   const detailedCities = useMemo(() => {
     if (routeCandidates.length === 0) return baselineDetailedCities;
@@ -558,6 +563,7 @@ export default function WorldMap({
   ]), [activeRouteSignature, previewCandidate?.id]);
   const visibleLandmarks = useMemo(() => ROUTE_LANDMARKS.filter((landmark) => {
     if (pinnedLandmarkRouteIds.has(landmark.routeId)) return true;
+    if (mapLayer === "weather") return false;
     if (mapLayer !== "roads" || mapDetail !== "close" || routeCandidates.length > 0) return landmark.prominence === "major";
     return true;
   }), [mapDetail, mapLayer, pinnedLandmarkRouteIds, routeCandidateSignature]);
@@ -583,6 +589,7 @@ export default function WorldMap({
   })), [landmarkLayout]);
   const actorLayout = useMemo(() => {
     const points = game.worldActors.flatMap((actor) => {
+      if (mapLayer === "weather" && !pinnedLandmarkRouteIds.has(actor.routeId)) return [];
       if (routeCandidates.length > 0 && !pinnedLandmarkRouteIds.has(actor.routeId)) return [];
       const route = ROUTES.find((candidate) => candidate.id === actor.routeId);
       if (!route) return [];
@@ -590,7 +597,7 @@ export default function WorldMap({
       return [{ id: actor.id, kind: actor.kind, x: point.x, y: point.y }];
     });
     return layoutMapActors(points, [...cityIconObstacles, ...routeBadgeObstacles, ...captivityObstacles, ...landmarkObstacles], mapDetail, viewport.width > 270);
-  }, [game.worldActors, mapDetail, viewport.width, cityIconObstacles, routeBadgeObstacles, captivityObstacles, landmarkObstacles, pinnedLandmarkRouteIds, routeCandidateSignature]);
+  }, [game.worldActors, mapDetail, mapLayer, viewport.width, cityIconObstacles, routeBadgeObstacles, captivityObstacles, landmarkObstacles, pinnedLandmarkRouteIds, routeCandidateSignature]);
   const actorsById = useMemo(() => new Map(game.worldActors.map((actor) => [actor.id, actor])), [game.worldActors]);
   const actorObstacles = useMemo<MapIconObstacle[]>(() => actorLayout.map((layout) => ({
     id: `actor:${layout.id}`,
@@ -622,6 +629,10 @@ export default function WorldMap({
   );
   const stackedActorGroups = actorLayout.filter((group) => group.actorIds.length > 1).length;
   const stackedLandmarkGroups = landmarkLayout.filter((group) => group.landmarkIds.length > 1).length;
+
+  useEffect(() => {
+    if (mapDetail === "wide" && expandedCityIds.length > 0) setExpandedCityIds([]);
+  }, [mapDetail, expandedCityIds.length]);
 
   function markerHitRadius(city: (typeof CITIES)[number]) {
     const minimum = mapDetail === "wide" ? 14 : mapDetail === "mid" ? 10 : 6.5;
@@ -682,6 +693,7 @@ export default function WorldMap({
 
   function selectFocus(nextFocus: MapFocus) {
     cancelWheelInteraction();
+    setExpandedCityIds([]);
     setFocus(nextFocus);
     commitViewport(VIEW_BOXES[nextFocus]);
   }
@@ -696,12 +708,17 @@ export default function WorldMap({
     commitViewport(cityViewport);
   }
 
-  function focusCityCluster(cityIds: string[]) {
+  function focusCities(cityIds: string[]) {
     const clusterViewport = viewportForCities(cityIds);
     if (!clusterViewport) return;
     setFocus(null);
     cancelWheelInteraction();
     commitViewport(clusterViewport);
+  }
+
+  function expandCityCluster(cityIds: string[]) {
+    setExpandedCityIds(cityIds);
+    focusCities(cityIds);
   }
 
   function zoomBy(factor: number, anchor = {
@@ -731,7 +748,7 @@ export default function WorldMap({
   }
 
   function handlePointerDown(event: React.PointerEvent<SVGSVGElement>) {
-    if ((event.target as Element).closest(".city-node, .city-node-hit-target, .route-hit-target")) return;
+    if ((event.target as Element).closest(".city-node, .city-node-hit-target, .city-cluster, .route-hit-target")) return;
     if (event.pointerType === "mouse" && event.button !== 0) return;
     cancelWheelInteraction();
     commitViewport(viewportRef.current);
@@ -782,7 +799,7 @@ export default function WorldMap({
 
   function focusRouteEndpoint(cityId: string) {
     onSelectCity(cityId);
-    focusCityCluster([cityId]);
+    focusCities([cityId]);
   }
 
   return (
@@ -968,6 +985,7 @@ export default function WorldMap({
             return (
               <g key={weather.region.id} className={`weather-region weather-${weather.kind} weather-severity-${weather.severity}`} transform={`translate(${point.x} ${point.y})`}>
                 <g transform={`scale(${frontScale})`}>
+                  <path className="weather-front-shadow" d="M-56 2 Q-51 -29 -30 -27 Q-13 -43 8 -30 Q31 -43 43 -20 Q61 -14 59 11 Q47 34 23 29 Q2 42 -16 31 Q-42 39 -56 20 Z" />
                   <path className="weather-front-ring" d="M-53 1 Q-48 -25 -27 -23 Q-12 -38 6 -26 Q27 -39 38 -18 Q55 -13 54 8 Q43 29 21 24 Q2 36 -13 26 Q-37 34 -51 17 Z" />
                   <path className="weather-front-inner" d="M-42 3 Q-37 -16 -22 -13 Q-12 -25 2 -16 Q17 -25 27 -11 Q39 -8 40 6 Q31 18 17 15 Q4 23 -7 16 Q-24 22 -37 12 Z" />
                   <path className="weather-wash" d="M-46 4 Q-42 -18 -24 -15 Q-15 -31 3 -19 Q19 -31 29 -14 Q45 -13 47 5 Q38 21 19 17 Q5 27 -8 18 Q-29 27 -42 13 Z" />
@@ -1162,13 +1180,14 @@ export default function WorldMap({
                 {(Math.abs(anchorDx) > 1 || Math.abs(anchorDy) > 1) && <path className="weather-anchor-line" d={`M0 0 L${anchorDx} ${anchorDy}`} />}
                 <g transform={`scale(${scale})`}>
                   <path className="weather-cartouche" d="M-28 -12 Q0 -19 28 -12 L31 10 Q0 16 -31 10 Z" />
+                  <path className="weather-cartouche-band" d="M-28 -12 Q0 -19 28 -12 L29 -7 Q0 -12 -29 -7 Z" />
                   <g className="weather-symbol" transform="translate(-13 -1)"><WeatherGlyph kind={weather.kind} /></g>
                   <text className="weather-token-seal" x="11" y="3.2" textAnchor="middle">{weather.seal}</text>
                   <text className="weather-duration" x="11" y="8.4" textAnchor="middle">至{weather.endsDay}日</text>
                   <g className="weather-severity-marks" aria-hidden="true" transform="translate(-7.5 11.3)">
                     {[1, 2, 3, 4].map((level) => <circle key={level} cx={(level - 1) * 5} r="1.05" className={level <= weather.severity ? "is-filled" : ""} />)}
                   </g>
-                  {mapDetail !== "close" && <text className="weather-region-label" y="23" textAnchor="middle">{weather.region.name} · {weather.label}</text>}
+                  <text className="weather-region-label" y="23" textAnchor="middle">{weather.region.name} · {weather.label}</text>
                 </g>
                 <title>{weather.region.name} · 第 {game.day} 日 · {weather.label} · {weather.description}</title>
               </g>
@@ -1384,10 +1403,14 @@ export default function WorldMap({
                 transform={`translate(${markerX} ${markerY})`}
                 role="button"
                 tabIndex={0}
-                aria-label={`${names}，共${cluster.cityIds.length}处城驿，${ownerNames}实控，点击放大展开`}
+                aria-label={`${names}，共${cluster.cityIds.length}处城驿，${ownerNames}实控，点击展开各城`}
                 style={{ color: faction.color }}
-                onClick={(event) => { event.stopPropagation(); focusCityCluster(cluster.cityIds); }}
-                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") focusCityCluster(cluster.cityIds); }}
+                onClick={(event) => { event.stopPropagation(); expandCityCluster(cluster.cityIds); }}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter" && event.key !== " ") return;
+                  event.preventDefault();
+                  expandCityCluster(cluster.cityIds);
+                }}
               >
                 {markerLayout?.displaced && <g className="settlement-anchor" aria-hidden="true">
                   <path d={`M0 0 L${anchorDx} ${anchorDy}`} />

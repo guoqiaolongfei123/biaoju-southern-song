@@ -14,9 +14,9 @@ function markerPriority(city: CityDefinition, pinned: Set<string>): number {
 }
 
 function minimumSpacing(detail: MapDetail): number {
-  if (detail === "wide") return 30;
-  if (detail === "mid") return 14;
-  return 13;
+  if (detail === "wide") return 48;
+  if (detail === "mid") return 30;
+  return 28;
 }
 
 /**

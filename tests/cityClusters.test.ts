@@ -28,10 +28,10 @@ describe("city marker clustering", () => {
   });
 
   it("bounds dense chains so one overview seal never swallows a whole province", () => {
-    const chain = Array.from({ length: 9 }, (_, index) => city(`chain-${index}`, index * 8, 10));
+    const chain = Array.from({ length: 16 }, (_, index) => city(`chain-${index}`, index * 8, 10));
     const clusters = layoutCityMarkerClusters(chain, new Set(), "wide");
     expect(clusters.length).toBeGreaterThan(1);
-    expect(Math.max(...clusters.map((cluster) => cluster.cityIds.length))).toBeLessThanOrEqual(6);
+    expect(Math.max(...clusters.map((cluster) => cluster.cityIds.length))).toBeLessThanOrEqual(10);
   });
 
   it("keeps only extremely close cities paired at the near-view scale", () => {
@@ -41,8 +41,9 @@ describe("city marker clustering", () => {
   });
 
   it("keeps separated close-range cities individual and remains deterministic", () => {
-    const forward = layoutCityMarkerClusters(cities, new Set(), "close");
-    const reverse = layoutCityMarkerClusters([...cities].reverse(), new Set(), "close");
+    const separated = [city("a", 10, 10), city("b", 32, 10, "major"), city("c", 80, 80)];
+    const forward = layoutCityMarkerClusters(separated, new Set(), "close");
+    const reverse = layoutCityMarkerClusters([...separated].reverse(), new Set(), "close");
     expect(forward.every((cluster) => cluster.cityIds.length === 1)).toBe(true);
     expect(reverse).toEqual(forward);
   });
