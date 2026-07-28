@@ -65,6 +65,13 @@ import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusConte
 import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import {
+  coldChainSegmentDamage,
+  specialBattleDangerModifier,
+  specialHandlingForContract,
+  specialSettlementRates,
+  specialTravelForecast,
+} from "./specialContractContent";
+import {
   weatherEffectForRoute,
   weatherForRoute,
   weatherForecastConfidence,
@@ -540,6 +547,7 @@ export function segmentTravelForecast(game: GameState, routeId: string, availabl
 export interface RouteWeatherReport {
   routeId: string;
   departureDay: number;
+  days: number;
   weather: RegionalWeather;
   effect: RouteWeatherEffect;
   confidence: WeatherForecastConfidence;
@@ -551,6 +559,9 @@ export interface RoutePlanTravelForecastResult {
   staminaCost: number;
   dangerModifier: number;
   weatherDangerModifier: number;
+  specialDangerModifier: number;
+  specialCargoLoss: number;
+  specialHandlingNote: string | null;
   totalDangerModifier: number;
   dangerLabel: string;
   modifiers: string[];
@@ -581,6 +592,7 @@ export function routePlanTravelForecast(game: GameState, plan: RoutePlan): Route
   let staminaCost = 0;
   const modifiers = new Set<string>();
   const weatherReports: RouteWeatherReport[] = [];
+  const specialSegments = [];
   for (const routeId of plan.routeIds) {
     const departureDay = game.day + days;
     const segment = segmentTravelForecast(game, routeId, stamina, false, departureDay);
@@ -592,15 +604,27 @@ export function routePlanTravelForecast(game: GameState, plan: RoutePlan): Route
     weatherReports.push({
       routeId,
       departureDay,
+      days: segment.days,
       weather: segment.weather,
       effect: segment.weatherEffect,
       confidence: weatherForecastConfidence(game.day, departureDay),
     });
+    specialSegments.push({ days: segment.days, terrain: routeById(routeId).terrain, weather: segment.weather });
   }
   const insight = routePlanInsight(game, plan);
   const stance = travelStanceById(game.journey?.stance);
   const weatherDangerModifier = Math.round(weatherReports.reduce((sum, report) => sum + report.effect.dangerModifier, 0) / Math.max(1, weatherReports.length));
-  const totalDangerModifier = stance.dangerModifier + weatherDangerModifier;
+  const special = game.journey ? specialTravelForecast(game.journey.contract, {
+    stance: stance.id,
+    crewRoles: journeyCrew(game).map((member) => member.role),
+    upgrades: game.convoy.upgrades,
+    segments: specialSegments,
+    borderSegments: insight.borderSegments,
+    deadlineMargin: game.journey.contract.deadline - days,
+  }) : null;
+  if (special) modifiers.add(`${special.definition.seal}·${special.definition.name}`);
+  const specialDangerModifier = special?.dangerModifier ?? 0;
+  const totalDangerModifier = stance.dangerModifier + weatherDangerModifier + specialDangerModifier;
   const adjustedDanger = clampDanger(insight.knownDanger + totalDangerModifier);
   const margin = insight.freshness === "fresh" ? 0 : insight.freshness === "aging" ? 7 : 14;
   const dangerLabel = margin ? `约 ${clampDanger(adjustedDanger - margin)}—${clampDanger(adjustedDanger + margin)}` : `${adjustedDanger}`;
@@ -610,6 +634,9 @@ export function routePlanTravelForecast(game: GameState, plan: RoutePlan): Route
     staminaCost,
     dangerModifier: stance.dangerModifier,
     weatherDangerModifier,
+    specialDangerModifier,
+    specialCargoLoss: special?.estimatedCargoLoss ?? 0,
+    specialHandlingNote: special?.note ?? null,
     totalDangerModifier,
     dangerLabel,
     modifiers: [...modifiers],
@@ -726,16 +753,16 @@ function minDirectDanger(from: string, to: string): number {
 
 function preferredTemplateIds(status: CityStatus): ReadonlySet<string> {
   const byStatus: Partial<Record<CityStatus, string[]>> = {
-    prosperous: ["tribute-tea", "brocade-ledger", "merchant-ledger", "artisan-family"],
-    tense: ["medicine-muster-roll", "frontier-dispatch", "siege-engineer", "surrender-half-seal"],
-    besieged: ["medicine-muster-roll", "frontier-dispatch", "siege-engineer", "silent-physician"],
-    captured: ["salt-tallies", "merchant-ledger", "surrender-half-seal", "living-witness"],
-    famine: ["medicine-muster-roll", "salt-tallies", "family-letter", "silent-physician"],
-    plague: ["medicine-muster-roll", "family-letter", "silent-physician", "artisan-family"],
-    disrupted: ["brocade-ledger", "salt-tallies", "merchant-ledger", "living-witness"],
-    martial: ["medicine-muster-roll", "frontier-dispatch", "siege-engineer", "surrender-half-seal"],
-    contested: ["frontier-dispatch", "surrender-half-seal", "siege-engineer", "living-witness"],
-    autonomous: ["brocade-ledger", "salt-tallies", "merchant-ledger", "artisan-family"],
+    prosperous: ["tribute-tea", "brocade-ledger", "merchant-ledger", "artisan-family", "appointed-bronze-pattern"],
+    tense: ["medicine-muster-roll", "frontier-dispatch", "siege-engineer", "surrender-half-seal", "unknown-vermilion-chest"],
+    besieged: ["medicine-muster-roll", "frontier-dispatch", "siege-engineer", "silent-physician", "appointed-bronze-pattern"],
+    captured: ["salt-tallies", "merchant-ledger", "surrender-half-seal", "living-witness", "northbound-coffin"],
+    famine: ["medicine-muster-roll", "salt-tallies", "family-letter", "silent-physician", "ice-sealed-medicine"],
+    plague: ["medicine-muster-roll", "family-letter", "silent-physician", "artisan-family", "ice-sealed-medicine"],
+    disrupted: ["brocade-ledger", "salt-tallies", "merchant-ledger", "living-witness", "unknown-vermilion-chest"],
+    martial: ["medicine-muster-roll", "frontier-dispatch", "siege-engineer", "surrender-half-seal", "appointed-bronze-pattern"],
+    contested: ["frontier-dispatch", "surrender-half-seal", "siege-engineer", "living-witness", "unknown-vermilion-chest"],
+    autonomous: ["brocade-ledger", "salt-tallies", "merchant-ledger", "artisan-family", "northbound-coffin"],
   };
   return new Set(byStatus[status] ?? []);
 }
@@ -767,8 +794,8 @@ export function generateContracts(
     attempts += 1;
     const destinationPick = pickRandom(state, destinations);
     state = destinationPick.state;
-    const kindOrder = ["cargo", "letter", "escort"] as const;
-    const desiredKind = favorsLivingCargo && contracts.length % 3 === 0 ? "escort" : kindOrder[contracts.length % kindOrder.length];
+    const kindOrder = ["cargo", "letter", "escort", "special"] as const;
+    const desiredKind = favorsLivingCargo && contracts.length % 4 === 0 ? "escort" : kindOrder[contracts.length % kindOrder.length];
     const sameKind = CONTRACT_TEMPLATES.filter((template) => template.kind === desiredKind);
     const principlePreferred = favorsSealedCargo ? sameKind.filter((template) => template.sealRequired) : [];
     const statusPreferred = (principlePreferred.length ? principlePreferred : sameKind).filter((template) => preferredIds.has(template.id));
@@ -800,6 +827,7 @@ export function generateContracts(
       risk: riskLabel(danger + complicationRisk(template.complication)),
       sealRequired: template.sealRequired,
       kind: template.kind,
+      specialHandlingId: template.specialHandlingId,
       patron: template.patron,
       inspectionAllowed: template.inspectionAllowed,
       allowedLoss: template.allowedLoss,
@@ -1786,8 +1814,8 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
     const permitValid = hasActivePermit(game, destinationOwner);
     const permitExpiresDay = game.travelPermits?.[destinationOwner] ?? 0;
     const concealSupplyCost = Math.max(0, (hasConvoyUpgrade(game.convoy, "hidden-compartment") ? 1 : 2) - principleConcealSaving(game));
-    const subject = journey.contract.kind === "escort" ? "护送之人" : journey.contract.kind === "letter" ? "随身文书" : "车上镖物";
-    const concealLabel = journey.contract.kind === "escort" ? "乔装换名过关" : journey.contract.kind === "letter" ? "夹藏密函过关" : "换票分装过关";
+    const subject = journey.contract.kind === "escort" ? "护送之人" : journey.contract.kind === "letter" ? "随身文书" : journey.contract.kind === "special" ? "特镖封匣" : "车上镖物";
+    const concealLabel = journey.contract.kind === "escort" ? "乔装换名过关" : journey.contract.kind === "letter" ? "夹藏密函过关" : journey.contract.kind === "special" ? "改换行头藏匣过关" : "换票分装过关";
     const coverForecast = borderCoverForecast(game, destinationOwner);
     const coverRisk = Math.round(coverForecast.exposureRisk * 100);
     const choices = [
@@ -1920,14 +1948,15 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
       },
     };
   }
-  const demandedTarget = journey.contract.kind === "escort" ? "客车里的人" : journey.contract.kind === "letter" ? "藏信的匣子" : "那辆货车";
-  const sacrificeLabel = journey.contract.kind === "escort" ? "交出护送之人" : journey.contract.kind === "letter" ? "焚信弃匣脱身" : "弃下一箱镖货";
-  const sacrificeHint = journey.contract.kind === "cargo" ? "货物完整度大损，但人车可走" : "此镖几乎必定失败，但镖队免战";
+  const specialHandling = specialHandlingForContract(journey.contract);
+  const demandedTarget = journey.contract.kind === "escort" ? "客车里的人" : journey.contract.kind === "letter" ? "藏信的匣子" : journey.contract.kind === "special" ? "那只特镖封匣" : "那辆货车";
+  const sacrificeLabel = journey.contract.kind === "escort" ? "交出护送之人" : journey.contract.kind === "letter" ? "焚信弃匣脱身" : journey.contract.kind === "special" ? "弃下特镖脱身" : "弃下一箱镖货";
+  const sacrificeHint = journey.contract.kind === "cargo" ? "货物完整度大损，但人车可走" : journey.contract.kind === "special" ? `${specialHandling?.name ?? "特镖"}几乎必定毁约，但镖队免战` : "此镖几乎必定失败，但镖队免战";
   const tollCost = banditTollCost(game);
   const pursuit = route.terrain !== "river" && journey.contract.kind !== "escort" && eventRoll.value > rumorThreshold + (1 - rumorThreshold) * 0.54;
   if (pursuit) {
-    const stolenItem = journey.contract.kind === "letter" ? "封着暗记的信匣" : journey.contract.complication === "fragile" ? "一匣易碎镖物" : "头车上的红封镖匣";
-    const loss = journey.contract.kind === "letter" ? 42 : journey.contract.complication === "fragile" ? 36 : 28;
+    const stolenItem = journey.contract.kind === "letter" ? "封着暗记的信匣" : journey.contract.kind === "special" ? `${specialHandling?.name ?? "特镖"}封匣` : journey.contract.complication === "fragile" ? "一匣易碎镖物" : "头车上的红封镖匣";
+    const loss = journey.contract.kind === "letter" ? 42 : journey.contract.kind === "special" ? 44 : journey.contract.complication === "fragile" ? 36 : 28;
     return {
       rngState: eventRoll.state,
       event: {
@@ -1981,6 +2010,11 @@ export function advanceTravel(game: GameState): GameState {
   const shortfallMoraleLoss = journeyHasRole(next, "厨子") ? 5 : 8;
   const escortShortfallDamage = next.journey!.contract.kind === "escort" ? shortfall * 5 : 0;
   const vulnerableCargo = next.journey!.contract.kind !== "escort" && next.journey!.contract.complication === "fragile";
+  const specialCargoDamage = coldChainSegmentDamage(
+    next.journey!.contract,
+    { days: forecast.days, terrain: route.terrain, weather: departureWeather },
+    { crewRoles: journeyCrew(next).map((member) => member.role), upgrades: next.convoy.upgrades },
+  );
   const horseDamage = forecast.staminaShortfall > 0 ? Math.min(18, 2 + Math.ceil(forecast.staminaShortfall / 7)) : 0;
   next = {
     ...next,
@@ -1989,7 +2023,7 @@ export function advanceTravel(game: GameState): GameState {
       ...next.convoy,
       morale: Math.max(0, next.convoy.morale - shortfall * shortfallMoraleLoss),
       leaderHp: Math.max(1, next.convoy.leaderHp - shortfall * 3),
-      cargoIntegrity: Math.max(0, next.convoy.cargoIntegrity - (vulnerableCargo ? shortfall * 5 : 0)),
+      cargoIntegrity: Math.max(0, next.convoy.cargoIntegrity - (vulnerableCargo ? shortfall * 5 : 0) - specialCargoDamage),
       horseStamina: Math.max(0, next.convoy.horseStamina - forecast.staminaCost),
       horseHp: Math.max(1, next.convoy.horseHp - horseDamage),
     },
@@ -2000,6 +2034,9 @@ export function advanceTravel(game: GameState): GameState {
         ? Math.max(0, (next.journey!.escortHealth ?? 100) - escortShortfallDamage)
         : next.journey!.escortHealth,
     },
+    news: specialCargoDamage > 0
+      ? [`【特镖养护】${departureWeather.label}与本段脚程使「${next.journey!.contract.cargo}」自然损耗 ${specialCargoDamage}%，现余 ${Math.max(0, next.convoy.cargoIntegrity - (vulnerableCargo ? shortfall * 5 : 0) - specialCargoDamage)}%。`, ...next.news].slice(0, 6)
+      : next.news,
   };
   const created = createEvent(next, routeId, travelersAtDeparture, departureWeather);
   return { ...next, rngState: created.rngState, currentEvent: created.event, phase: "event" };
@@ -2022,8 +2059,9 @@ function buildBattle(game: GameState): GameState {
       : "不明武装";
   const objectiveMode = game.currentEvent?.battleMode ?? (route.terrain === "river" ? "holdout" as const : journey.contract.kind === "escort" ? "gate-run" as const : "breakthrough" as const);
   const objectiveSeconds = objectiveMode === "holdout" ? 42 : objectiveMode === "gate-run" ? (route.terrain === "mountain" ? 54 : 46) : objectiveMode === "pursuit" ? 34 : 72;
-  const recoveryLabel = journey.contract.kind === "letter" ? "密信匣" : journey.contract.complication === "fragile" ? "易碎镖匣" : "红封镖匣";
-  const pursuitCargoLoss = journey.contract.kind === "letter" ? 42 : journey.contract.complication === "fragile" ? 36 : 28;
+  const handling = specialHandlingForContract(journey.contract);
+  const recoveryLabel = journey.contract.kind === "letter" ? "密信匣" : journey.contract.kind === "special" ? `${handling?.name ?? "特镖"}封匣` : journey.contract.complication === "fragile" ? "易碎镖匣" : "红封镖匣";
+  const pursuitCargoLoss = journey.contract.kind === "letter" ? 42 : journey.contract.kind === "special" ? 44 : journey.contract.complication === "fragile" ? 36 : 28;
   const objective = objectiveMode === "holdout"
     ? "守住车马，撑到渡船靠岸"
     : objectiveMode === "gate-run"
@@ -2041,7 +2079,8 @@ function buildBattle(game: GameState): GameState {
         ? `夺镖者正向右侧山口脱逃；强行开路会自动集中追击，围车则保住余货`
       : "护车推进至右侧关口，停阵可减轻车货损伤";
   const guideCover = route.terrain === "mountain" && journeyHasRole(game, "向导") ? 8 : 0;
-  const danger = Math.min(96, Math.max(12, currentRouteDanger(game, routeId) - Math.min(3, game.routeIntel[routeId]?.trips ?? 0) * 5 - guideCover + stance.dangerModifier));
+  const handlingDanger = specialBattleDangerModifier(journey.contract, stance.id, game.convoy.upgrades);
+  const danger = Math.min(96, Math.max(12, currentRouteDanger(game, routeId) - Math.min(3, game.routeIntel[routeId]?.trips ?? 0) * 5 - guideCover + stance.dangerModifier + handlingDanger));
   return {
     ...game,
     phase: "battle",
@@ -2172,13 +2211,14 @@ function settleJourney(game: GameState): GameState {
   const integrity = contract.kind === "escort" ? journey.escortHealth ?? 100 : game.convoy.cargoIntegrity;
   const sealFailure = contract.sealRequired && !game.convoy.sealIntact;
   const excessLoss = Math.max(0, 100 - integrity - contract.allowedLoss);
-  const lateRate = contract.kind === "letter" ? 0.14 : contract.kind === "escort" ? 0.1 : 0.08;
-  const lossDivisor = contract.kind === "letter" ? 80 : contract.kind === "escort" ? 92 : 145;
-  const sealPenalty = contract.kind === "letter" ? 0.48 : contract.kind === "cargo" ? 0.25 : 0;
-  const conditionLabel = contract.kind === "escort" ? "护送对象安危" : contract.kind === "letter" ? "信物完整度" : "货物完整度";
+  const specialRates = specialSettlementRates(contract);
+  const lateRate = specialRates?.lateRate ?? (contract.kind === "letter" ? 0.14 : contract.kind === "escort" ? 0.1 : 0.08);
+  const lossDivisor = specialRates?.lossDivisor ?? (contract.kind === "letter" ? 80 : contract.kind === "escort" ? 92 : 145);
+  const sealPenalty = specialRates?.sealPenalty ?? (contract.kind === "letter" ? 0.48 : contract.kind === "cargo" ? 0.25 : 0);
+  const conditionLabel = contract.kind === "escort" ? "护送对象安危" : contract.kind === "letter" ? "信物完整度" : contract.kind === "special" ? "特镖完好度" : "货物完整度";
   let multiplier = 1;
   const notes: string[] = [];
-  if (lateDays > 0) { multiplier -= Math.min(0.5, lateDays * lateRate); notes.push(`比约定晚了 ${lateDays} 日${contract.kind === "letter" ? "，密信时效受损" : ""}`); }
+  if (lateDays > 0) { multiplier -= Math.min(contract.specialHandlingId === "appointed" ? 1 : 0.5, lateDays * lateRate); notes.push(`比约定晚了 ${lateDays} 日${contract.kind === "letter" ? "，密信时效受损" : contract.specialHandlingId === "appointed" ? "，已触犯刻时交付条款" : ""}`); }
   if (excessLoss > 0) { multiplier -= excessLoss / lossDivisor; notes.push(`${conditionLabel} ${integrity}%（允损 ${contract.allowedLoss}%）`); }
   if (sealFailure) { multiplier -= sealPenalty; notes.push(contract.kind === "letter" ? "信封与暗记已经破损" : "货封已经破损"); }
   if (changedHands && handoffChoice === "authority") {
@@ -2218,7 +2258,7 @@ function settleJourney(game: GameState): GameState {
   const compensation = grade === "失镖" ? Math.min(contract.failurePenalty, game.silver + reward) : 0;
   if (compensation > 0) notes.push(`按镖单赔付 ${compensation} 两`);
   if (!contract.secretKnown && contract.complication !== "none") notes.push(`交付后方知：${contract.secret}`);
-  const deliveryVerb = contract.kind === "escort" ? "护送" : contract.kind === "letter" ? "送达" : "运抵";
+  const deliveryVerb = contract.kind === "escort" ? "护送" : contract.kind === "letter" ? "送达" : contract.kind === "special" ? "押送" : "运抵";
   const title = grade === "失镖"
     ? "此镖未成"
     : changedHands && handoffChoice === "authority"
@@ -2228,7 +2268,7 @@ function settleJourney(game: GameState): GameState {
         : changedHands && handoffChoice === "covert"
           ? "暗门交印"
           : grade === "甲"
-            ? contract.kind === "escort" ? "人到无恙" : contract.kind === "letter" ? "信达印全" : "镖到货安"
+            ? contract.kind === "escort" ? "人到无恙" : contract.kind === "letter" ? "信达印全" : contract.kind === "special" ? "异镖如约" : "镖到货安"
             : grade === "乙" ? "有惊无险" : "残镖抵城";
   const originalCity = game.cities[contract.to];
   const helpfulDelivery = grade === "甲" || grade === "乙";
@@ -2288,7 +2328,7 @@ function settleJourney(game: GameState): GameState {
     tradeProfit: journey.tradeLot ? tradeProfit : undefined,
     equipmentReward,
     reputationChange,
-    notes: notes.length ? notes : [contract.kind === "escort" ? "按期抵达，护送之人安然无恙" : contract.kind === "letter" ? "按期抵达，信封、暗记与内页均完好" : "按期抵达，货物与封条均完好"],
+    notes: notes.length ? notes : [contract.kind === "escort" ? "按期抵达，护送之人安然无恙" : contract.kind === "letter" ? "按期抵达，信封、暗记与内页均完好" : contract.kind === "special" ? `按特殊规程交割，${specialHandlingForContract(contract)?.name ?? "特镖"}无损` : "按期抵达，货物与封条均完好"],
   };
   const settled: GameState = {
     ...game,

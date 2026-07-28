@@ -12,7 +12,8 @@ export type OfficeTier = "headquarters" | "outpost" | "branch";
 export type CityStandingTier = "stranger" | "known" | "trusted" | "pillar";
 export type FactionStandingTier = "hostile" | "watched" | "neutral" | "recognized" | "honored";
 export type IntelFreshness = "fresh" | "aging" | "rumor";
-export type ContractKind = "cargo" | "letter" | "escort";
+export type ContractKind = "cargo" | "letter" | "escort" | "special";
+export type SpecialHandlingId = "cold-chain" | "solemn" | "appointed" | "tracked";
 export type ContractPatron = "merchant" | "official" | "jianghu" | "temple" | "foreign";
 export type ContractComplication = "none" | "contraband" | "wanted" | "military" | "fragile" | "double_deal";
 export type Confidentiality = "寻常" | "隐秘" | "绝密";
@@ -83,6 +84,7 @@ export interface Contract {
   risk: "稳妥" | "棘手" | "凶险";
   sealRequired: boolean;
   kind: ContractKind;
+  specialHandlingId?: SpecialHandlingId;
   patron: ContractPatron;
   inspectionAllowed: boolean;
   allowedLoss: number;

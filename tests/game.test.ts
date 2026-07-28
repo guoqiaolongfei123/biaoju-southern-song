@@ -354,9 +354,9 @@ describe("镖局核心循环", () => {
     expect(first.contracts.map((contract) => contract.id)).not.toEqual(other.contracts.map((contract) => contract.id));
   });
 
-  it("每张新镖榜同时提供货镖、信镖与活镖", () => {
+  it("每张新镖榜同时提供货镖、信镖、活镖与特镖", () => {
     const game = createInitialGame(1107);
-    expect(new Set(game.contracts.map((contract) => contract.kind))).toEqual(new Set(["cargo", "letter", "escort"]));
+    expect(new Set(game.contracts.map((contract) => contract.kind))).toEqual(new Set(["cargo", "letter", "escort", "special"]));
     expect(game.contracts.every((contract) => contract.clue && contract.requirement && contract.failurePenalty > 0)).toBe(true);
   });
 

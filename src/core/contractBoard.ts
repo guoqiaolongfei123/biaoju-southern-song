@@ -1,4 +1,6 @@
 import { generateRoutePlans, routePlanInsight, routePlanTravelForecast } from "./game";
+import { routeById } from "./data";
+import { specialTravelForecast } from "./specialContractContent";
 import type { Contract, GameState, RoutePlan } from "./types";
 
 export type ContractBoardTone = "ready" | "caution" | "danger";
@@ -21,6 +23,13 @@ export interface ContractBoardAssessment {
   weatherSummary: string;
   intelLabel: string;
   score: number;
+  specialHandling: {
+    seal: string;
+    name: string;
+    note: string;
+    counterplay: string;
+    estimatedCargoLoss: number;
+  } | null;
 }
 
 function clampDanger(value: number): number {
@@ -33,15 +42,27 @@ function routePressure(game: GameState, contract: Contract, plan: RoutePlan) {
   const deadlineMargin = contract.deadline - travel.days;
   const supplyBalance = game.supplies - travel.supplyCost;
   const staminaBalance = game.convoy.horseStamina - travel.staminaCost;
-  const knownDanger = clampDanger(insight.knownDanger + travel.totalDangerModifier);
+  const special = specialTravelForecast(contract, {
+    stance: "steady",
+    crewRoles: game.activeCrewIds.flatMap((id) => {
+      const member = game.crew.find((item) => item.id === id);
+      return member ? [member.role] : [];
+    }),
+    upgrades: game.convoy.upgrades,
+    segments: travel.weatherReports.map((report) => ({ days: report.days, terrain: routeById(report.routeId).terrain, weather: report.weather })),
+    borderSegments: insight.borderSegments,
+    deadlineMargin,
+  });
+  const knownDanger = clampDanger(insight.knownDanger + travel.totalDangerModifier + (special?.dangerModifier ?? 0));
   const pressure = travel.days * 4
     + knownDanger * .55
     + insight.borderSegments * 9
     + Math.max(0, -deadlineMargin) * 24
     + Math.max(0, -supplyBalance) * 8
     + Math.max(0, -staminaBalance) * 1.8
-    + insight.blockedSegments * 80;
-  return { travel, insight, deadlineMargin, supplyBalance, staminaBalance, knownDanger, pressure };
+    + insight.blockedSegments * 80
+    + (special?.pressure ?? 0);
+  return { travel, insight, deadlineMargin, supplyBalance, staminaBalance, knownDanger, pressure, special };
 }
 
 /**
@@ -69,15 +90,16 @@ export function contractBoardAssessment(game: GameState, contract: Contract): Co
     weatherSummary: "无可用行程",
     intelLabel: "路断",
     score: -10_000,
+    specialHandling: null,
   };
 
   const ranked = plans
     .map((plan) => ({ plan, ...routePressure(game, contract, plan) }))
     .sort((a, b) => a.pressure - b.pressure || a.travel.days - b.travel.days || a.plan.id.localeCompare(b.plan.id));
   const best = ranked[0];
-  const { travel, insight, deadlineMargin, supplyBalance, staminaBalance, knownDanger } = best;
-  const hardPressure = deadlineMargin < 0 || supplyBalance < -3 || staminaBalance < -25 || insight.blockedSegments > 0;
-  const tightPressure = deadlineMargin <= 2 || supplyBalance < 0 || staminaBalance < 0 || knownDanger >= 66 || insight.borderSegments > 0 || insight.freshness !== "fresh";
+  const { travel, insight, deadlineMargin, supplyBalance, staminaBalance, knownDanger, special } = best;
+  const hardPressure = deadlineMargin < 0 || supplyBalance < -3 || staminaBalance < -25 || insight.blockedSegments > 0 || (special?.estimatedCargoLoss ?? 0) > contract.allowedLoss + 10;
+  const tightPressure = deadlineMargin <= 2 || supplyBalance < 0 || staminaBalance < 0 || knownDanger >= 66 || insight.borderSegments > 0 || insight.freshness !== "fresh" || Boolean(special && special.pressure > 0);
   const tone: ContractBoardTone = hardPressure ? "danger" : tightPressure ? "caution" : "ready";
   const rewardPerDay = Math.max(1, Math.round(contract.reward / Math.max(1, travel.days)));
   const score = Math.round(
@@ -89,7 +111,8 @@ export function contractBoardAssessment(game: GameState, contract: Contract): Co
       - insight.borderSegments * 9
       - Math.max(0, -deadlineMargin) * 28
       - Math.max(0, -supplyBalance) * 10
-      - Math.max(0, -staminaBalance) * 2,
+      - Math.max(0, -staminaBalance) * 2
+      - (special?.pressure ?? 0),
   );
   const title = tone === "ready"
     ? "车马从容，可作首选"
@@ -121,6 +144,13 @@ export function contractBoardAssessment(game: GameState, contract: Contract): Co
     weatherSummary: travel.weatherSummary,
     intelLabel,
     score,
+    specialHandling: special ? {
+      seal: special.definition.seal,
+      name: special.definition.name,
+      note: special.note,
+      counterplay: special.definition.counterplay,
+      estimatedCargoLoss: special.estimatedCargoLoss,
+    } : null,
   };
 }
 

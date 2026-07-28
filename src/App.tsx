@@ -62,6 +62,7 @@ import { TRAVEL_STANCE_LIST, travelStanceById } from "./core/travelContent";
 import { TRAVEL_COVER_LIST, routeBorderFactions, travelCoverAssessment, travelCoverById } from "./core/travelCoverContent";
 import { TRADE_GOODS } from "./core/tradeContent";
 import { MARTIAL_ART_LIST, martialArtById } from "./core/martialContent";
+import { specialHandlingForContract } from "./core/specialContractContent";
 import { LEGACY_BOON_LIST, createLegacyState, recordLegacyEnding } from "./core/legacyContent";
 import { CREW_DISCIPLINES } from "./core/crewDisciplineContent";
 import { CREW_MASTERIES, crewMasteryForRole } from "./core/crewMasteryContent";
@@ -836,6 +837,11 @@ function ContractCard({
         </dl>
         <p><span>{assessment.intelLabel}路险 {assessment.knownDanger}</span><span>{assessment.weatherSummary}</span></p>
       </section>
+      {assessment.specialHandling && <section className="special-handling-note" aria-label={`${assessment.specialHandling.name}特殊规程`}>
+        <i>{assessment.specialHandling.seal}</i>
+        <div><small>特镖规程 · 接镖前可见</small><b>{assessment.specialHandling.name}</b><p>{assessment.specialHandling.note}</p><em>{assessment.specialHandling.counterplay}</em></div>
+        {assessment.specialHandling.estimatedCargoLoss > 0 && <strong>预损<br />{assessment.specialHandling.estimatedCargoLoss}%</strong>}
+      </section>}
       <p className="contract-brief">{contract.brief}</p>
       <p className="contract-clue"><b>可疑征象</b>{contract.clue}</p>
       {contract.secretKnown && <div className="contract-secret"><span>底细已明</span><p>{contract.secret}</p><small>{contract.requirement}</small></div>}
@@ -1141,7 +1147,8 @@ function App() {
   const selectedHasMajorOffice = Boolean(selectedOffice?.active && (selectedOffice.tier === "headquarters" || selectedOffice.tier === "branch"));
   const selectedContractCount = contractCountForCity(selectedState, selectedHasMajorOffice, selectedLocalReputation);
   const activeContract = game.journey?.contract;
-  const cargoGaugeLabel = activeContract?.kind === "escort" ? "人身" : activeContract?.kind === "letter" ? "信物" : "货物";
+  const activeSpecialHandling = specialHandlingForContract(activeContract);
+  const cargoGaugeLabel = activeContract?.kind === "escort" ? "人身" : activeContract?.kind === "letter" ? "信物" : activeSpecialHandling?.gaugeLabel ?? "货物";
   const activeWagon = WAGONS[game.convoy.wagonId];
   const activeHorses = HORSE_TEAMS[game.convoy.horseTeamId];
   const careerObjectives = careerObjectiveProgress(game);
@@ -1511,6 +1518,9 @@ function App() {
                 <b>{game.journey.contract.cargo}</b><span>{game.journey.contract.brief}</span>
                 {game.journey.contract.secretKnown && <em><strong>已查明</strong>{game.journey.contract.secret}</em>}
               </div>
+              {activeSpecialHandling && <section className="planning-special-rule" aria-label={`${activeSpecialHandling.name}行前规程`}>
+                <i>{activeSpecialHandling.seal}</i><div><small>特镖行规</small><b>{activeSpecialHandling.name}</b><p>{activeSpecialHandling.rule}</p><em>{activeSpecialHandling.counterplay}</em></div>
+              </section>}
               {sideTradeOffer && (
                 <section className={`side-trade-lot ${sideTradeOffer.purchased ? "is-loaded" : ""}`} aria-label="顺路搭载本地副货">
                   <i>{sideTradeOffer.seal}</i>
@@ -1658,6 +1668,7 @@ function App() {
                 <p><span>预计耗时</span><b>{forecast.days} 日</b></p>
                 <p><span>地形</span><b>{TERRAIN_LABEL[routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).terrain]}</b></p>
                 <p><span>当前天候</span><b className={`journey-weather weather-${forecast.weather.kind}`}>{forecast.weather.seal} · {forecast.weather.label}<small>{forecast.weatherEffect.note}</small></b></p>
+                {activeSpecialHandling && <p className="journey-special-rule"><span>特镖规程</span><b><i>{activeSpecialHandling.seal}</i>{activeSpecialHandling.name}<small>{activeSpecialHandling.rule}</small></b></p>}
                 <p><span>行程方略</span><b className={`journey-stance stance-${journeyStance.id}`}>{journeyStance.seal} · {journeyStance.title}</b></p>
                 <p><span>过关身份</span><b className={`journey-cover cover-${journeyCover.id}`}>{journeyCover.seal} · {journeyCover.title}{game.journey!.coverBlown ? "（已败露）" : ""}</b></p>
                 <p><span>车马耗用</span><b>粮 {forecast.supplyCost} · 马力 {forecast.staminaCost}</b></p>

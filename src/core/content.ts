@@ -4,6 +4,7 @@ import type {
   ContractComplication,
   ContractKind,
   ContractPatron,
+  SpecialHandlingId,
 } from "./types";
 
 export interface ContractTemplate {
@@ -23,18 +24,21 @@ export interface ContractTemplate {
   requirement: string;
   rewardBonus: number;
   deadlineBuffer: number;
+  specialHandlingId?: SpecialHandlingId;
 }
 
 export const CONTRACT_KIND_LABEL: Record<ContractKind, string> = {
   cargo: "货镖",
   letter: "信镖",
   escort: "活镖",
+  special: "特镖",
 };
 
 export const CONTRACT_KIND_SEAL: Record<ContractKind, string> = {
   cargo: "貨",
   letter: "信",
   escort: "人",
+  special: "异",
 };
 
 export const CONTRACT_PATRON_LABEL: Record<ContractPatron, string> = {
@@ -270,6 +274,82 @@ export const CONTRACT_TEMPLATES: readonly ContractTemplate[] = [
     rewardBonus: 20,
     deadlineBuffer: 6,
   },
+  {
+    id: "ice-sealed-medicine",
+    kind: "special",
+    specialHandlingId: "cold-chain",
+    patron: "temple",
+    title: "冰瓮不离阴",
+    cargo: "两瓮冰封解疫丹",
+    sealRequired: true,
+    inspectionAllowed: true,
+    allowedLoss: 4,
+    confidentiality: "隐秘",
+    failurePenalty: 62,
+    complication: "fragile",
+    clue: "瓮壁包了三层湿麻，封蜡旁还压着每两个时辰换冰的药签。",
+    secret: "药丸离冰后会迅速失效，委托人却刻意少报了一半所需冰料。",
+    requirement: "须阴凉通风；不可在暑热中久停，沿途要留意换冰。",
+    rewardBonus: 46,
+    deadlineBuffer: 3,
+  },
+  {
+    id: "northbound-coffin",
+    kind: "special",
+    specialHandlingId: "solemn",
+    patron: "jianghu",
+    title: "归柩过关",
+    cargo: "一具北归旧柩",
+    sealRequired: true,
+    inspectionAllowed: false,
+    allowedLoss: 0,
+    confidentiality: "绝密",
+    failurePenalty: 74,
+    complication: "wanted",
+    clue: "棺钉是南地新铸，灵牌却刮去了籍贯，抬棺人一听巡检二字便噤声。",
+    secret: "柩中除遗骸外还藏着一面旧军旗，宋金两边都不愿它回到故乡。",
+    requirement: "不得开棺验看；入关只认同乡会馆的引魂帖。",
+    rewardBonus: 62,
+    deadlineBuffer: 5,
+  },
+  {
+    id: "appointed-bronze-pattern",
+    kind: "special",
+    specialHandlingId: "appointed",
+    patron: "official",
+    title: "更漏前交印",
+    cargo: "一匣限时铜范",
+    sealRequired: true,
+    inspectionAllowed: false,
+    allowedLoss: 3,
+    confidentiality: "绝密",
+    failurePenalty: 70,
+    complication: "military",
+    clue: "交割文书不写日期，只写目的地城楼第三通更鼓之前。",
+    secret: "铜范是新铸关防的母模；误过时辰，旧关防便会先被敌探冒用。",
+    requirement: "必须在约定更漏前交付；误一日即大幅扣酬。",
+    rewardBonus: 58,
+    deadlineBuffer: 1,
+  },
+  {
+    id: "unknown-vermilion-chest",
+    kind: "special",
+    specialHandlingId: "tracked",
+    patron: "foreign",
+    title: "朱匣无人认",
+    cargo: "一只无款朱漆匣",
+    sealRequired: true,
+    inspectionAllowed: false,
+    allowedLoss: 0,
+    confidentiality: "绝密",
+    failurePenalty: 82,
+    complication: "double_deal",
+    clue: "匣角嵌着四国文字磨平后的铜片，委托人身后已经换过三拨尾巴。",
+    secret: "匣中是数家边贸暗线的总账；沿路至少有两股势力正循特殊香料追踪。",
+    requirement: "不可开匣；须隐藏气味与行踪，不得公开报出接货人。",
+    rewardBonus: 76,
+    deadlineBuffer: 3,
+  },
 ] as const;
 
 export function complicationRisk(complication: ContractComplication): number {
@@ -280,7 +360,9 @@ export function complicationRisk(complication: ContractComplication): number {
 }
 
 export function isBorderSensitive(contract: Contract): boolean {
-  return contract.complication === "contraband"
+  return contract.specialHandlingId === "solemn"
+    || contract.specialHandlingId === "tracked"
+    || contract.complication === "contraband"
     || contract.complication === "wanted"
     || contract.complication === "military"
     || contract.complication === "double_deal";
