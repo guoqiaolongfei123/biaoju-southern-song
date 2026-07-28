@@ -1,4 +1,4 @@
-import type { Contract, FactionId, GameState, HandoffChoice, LegacyId, LegacyState, MartialArtId, OriginId, TradeGoodId, TravelStance } from "./types";
+import type { Contract, FactionId, GameState, HandoffChoice, LegacyId, LegacyState, MartialArtId, OriginId, TradeGoodId, TravelCoverId, TravelStance } from "./types";
 import { hydrateLegacyContract } from "./content";
 import { createInitialCityReputation, createInitialCrew, createInitialOffices, createInitialRouteIntel, createInitialRouteStates, crewBattleGuards } from "./game";
 import { generateRecruitPool, normalizeCrewMember } from "./crewContent";
@@ -9,6 +9,7 @@ import { createFactionRecord } from "./factionContent";
 import { createConductState } from "./conductContent";
 import { ORIGINS } from "./originContent";
 import { TRAVEL_STANCES } from "./travelContent";
+import { TRAVEL_COVERS } from "./travelCoverContent";
 import { TRADE_GOODS } from "./tradeContent";
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "./martialContent";
 import { normalizeWorldActors } from "./worldActorContent";
@@ -68,6 +69,7 @@ export function migrateSavedGame(value: unknown): GameState | null {
   const activeCrewIds = Array.isArray(saved.activeCrewIds) ? legacy.activeCrewIds : ["lu-cang", "qiao-qing", "he-sheng"];
   const legacyJourney = saved.journey as Record<string, unknown> | null;
   const legacyStance: TravelStance = typeof legacyJourney?.stance === "string" && legacyJourney.stance in TRAVEL_STANCES ? legacyJourney.stance as TravelStance : "steady";
+  const legacyCoverId: TravelCoverId = typeof legacyJourney?.coverId === "string" && legacyJourney.coverId in TRAVEL_COVERS ? legacyJourney.coverId as TravelCoverId : "open-escort";
   const journeyContract = legacyJourney ? hydrateLegacyContract(legacyJourney.contract as Contract) : null;
   const legacyTradeLot = legacyJourney?.tradeLot as Record<string, unknown> | undefined;
   const tradeGoodId = typeof legacyTradeLot?.goodId === "string" && legacyTradeLot.goodId in TRADE_GOODS ? legacyTradeLot.goodId as TradeGoodId : null;
@@ -83,6 +85,8 @@ export function migrateSavedGame(value: unknown): GameState | null {
       crewIds: Array.isArray(legacyJourney.crewIds) ? legacyJourney.crewIds : activeCrewIds,
       battleVictories: typeof legacyJourney.battleVictories === "number" ? Math.max(0, Math.floor(legacyJourney.battleVictories)) : 0,
       stance: legacyStance,
+      coverId: legacyCoverId,
+      coverBlown: legacyJourney.coverBlown === true,
       issuerFaction: typeof legacyJourney.issuerFaction === "string" && factionIds.has(legacyJourney.issuerFaction as FactionId)
         ? legacyJourney.issuerFaction as FactionId
         : cities[journeyContract!.from]?.owner ?? "neutral",

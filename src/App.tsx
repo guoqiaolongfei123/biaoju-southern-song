@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
-import { CITIES, FACTIONS, TERRAIN_LABEL, cityById, routeById } from "./core/data";
+import { CITIES, FACTIONS, ROUTES, TERRAIN_LABEL, cityById, routeById } from "./core/data";
 import { CONTRACT_KIND_LABEL, CONTRACT_KIND_SEAL, CONTRACT_PATRON_LABEL } from "./core/content";
 import { CONVOY_UPGRADES, HORSE_TEAMS, WAGONS } from "./core/convoyContent";
 import {
@@ -39,6 +39,7 @@ import {
   routePlanTravelForecast,
   segmentTravelForecast,
   serviceCost,
+  setTravelCover,
   setTravelStance,
   setMartialArt,
   supplyPurchaseAmount,
@@ -57,6 +58,7 @@ import { careerEnding, careerObjectiveProgress } from "./core/careerContent";
 import { conductPrinciples } from "./core/conductContent";
 import { ORIGIN_LIST, originById } from "./core/originContent";
 import { TRAVEL_STANCE_LIST, travelStanceById } from "./core/travelContent";
+import { TRAVEL_COVER_LIST, routeBorderFactions, travelCoverAssessment, travelCoverById } from "./core/travelCoverContent";
 import { TRADE_GOODS } from "./core/tradeContent";
 import { MARTIAL_ART_LIST, martialArtById } from "./core/martialContent";
 import { LEGACY_BOON_LIST, createLegacyState, recordLegacyEnding } from "./core/legacyContent";
@@ -537,6 +539,82 @@ function developmentRoutePreviewActive(): boolean {
   return new URLSearchParams(window.location.search).get("map-preview") === "routes";
 }
 
+function developmentCoverPreviewActive(): boolean {
+  if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
+  return ["border", "event"].includes(new URLSearchParams(window.location.search).get("cover-preview") ?? "");
+}
+
+function developmentCoverPreviewGame(game: GameState): GameState {
+  if (!developmentCoverPreviewActive()) return game;
+  const preview = createInitialGame(1208, "linan-guild");
+  const mode = new URLSearchParams(window.location.search).get("cover-preview");
+  const source = preview.contracts[0];
+  if (!source) return game;
+  if (mode === "event") {
+    const route = ROUTES.find((item) => {
+      const fromOwner = preview.cities[item.from].owner;
+      const toOwner = preview.cities[item.to].owner;
+      return fromOwner !== toOwner && (fromOwner === "jin" || toOwner === "jin");
+    });
+    if (!route) return game;
+    const from = preview.cities[route.from].owner === "jin" ? route.to : route.from;
+    const to = from === route.from ? route.to : route.from;
+    const contract: Contract = {
+      ...source,
+      id: "preview-border-event",
+      from,
+      to,
+      kind: "letter",
+      patron: "official",
+      complication: "military",
+      confidentiality: "绝密",
+      secretKnown: true,
+      deadline: 20,
+      cargo: "边军铺递暗册",
+    };
+    const plan: RoutePlan = { id: `preview-${route.id}`, routeIds: [route.id], cityIds: [from, to], days: route.days, danger: route.danger, label: "越界官道", description: "关前已换金军旗号。" };
+    const planning: GameState = {
+      ...preview,
+      currentCityId: from,
+      selectedCityId: to,
+      phase: "planning",
+      journey: {
+        contract,
+        plan,
+        segmentIndex: 0,
+        startedDay: preview.day,
+        elapsedDays: 0,
+        traveledRouteIds: [],
+        crewIds: [...preview.activeCrewIds],
+        stance: "steady",
+        coverId: "open-escort",
+        coverBlown: false,
+        issuerFaction: preview.cities[from].owner,
+        expectedDestinationOwner: preview.cities[to].owner,
+      },
+    };
+    return advanceTravel(chooseRoute(setTravelCover(planning, "military-train"), plan));
+  }
+  const contract: Contract = {
+    ...source,
+    id: "preview-border-cover",
+    to: "kaifeng",
+    title: "旧京军铺密册",
+    cargo: "襄阳军铺旧册",
+    client: "枢密院承旨",
+    kind: "letter",
+    patron: "official",
+    complication: "military",
+    confidentiality: "绝密",
+    inspectionAllowed: false,
+    secretKnown: true,
+    secret: "册中记有北地旧军铺暗号，落入金军手中便会牵出沿边接应人。",
+    deadline: 32,
+    brief: "把旧军铺名册送入金境开封，不能亮出宋廷来路。",
+  };
+  return acceptContract({ ...preview, contracts: [contract, ...preview.contracts] }, contract.id);
+}
+
 function developmentFrontlinePreviewActive(): boolean {
   if (typeof window === "undefined" || !["localhost", "127.0.0.1"].includes(window.location.hostname)) return false;
   return new URLSearchParams(window.location.search).get("map-preview") === "frontline";
@@ -774,6 +852,7 @@ function RouteCard({
   const travel = routePlanTravelForecast(game, plan);
   const readiness = departureReadinessForPlan(game, plan);
   const routeStance = travelStanceById(game.journey?.stance);
+  const routeCover = travelCoverById(game.journey?.coverId);
   const strongestWeather = [...travel.weatherReports].sort((a, b) => b.weather.severity - a.weather.severity)[0];
   const furthestWeather = travel.weatherReports[travel.weatherReports.length - 1];
   const freshnessLabel = insight.freshness === "fresh" ? "今报" : insight.freshness === "aging" ? "旧报" : "传闻";
@@ -785,6 +864,7 @@ function RouteCard({
     if (owner !== previousOwner && !result.includes(owner)) result.push(owner);
     return result;
   }, []);
+  const routeCoverAssessment = travelCoverAssessment(game, routeCover.id, borderFactions[0] ?? null);
   return (
     <article
       className={`route-card candidate-tone-${index % 3} intel-${insight.freshness} ${highlighted ? "is-previewed" : ""}`}
@@ -805,6 +885,7 @@ function RouteCard({
           <span>预计耗粮 {travel.supplyCost}</span>
           <span>马力 -{travel.staminaCost}</span>
           <span className={`stance-tag stance-${game.journey?.stance ?? "steady"}`}>{routeStance.title}{routeStance.dangerModifier ? ` · 路险${routeStance.dangerModifier > 0 ? "+" : ""}${routeStance.dangerModifier}` : ""}</span>
+          {insight.borderSegments > 0 && <span className={`cover-tag cover-${routeCover.id}`}>{routeCover.seal} · {routeCover.title}{routeCover.cost ? ` · ${routeCover.cost}两` : ""}</span>}
           {strongestWeather && <span className={`weather-tag weather-${strongestWeather.weather.kind}`}>{travel.weatherSummary} · {furthestWeather.confidence.label}</span>}
           {travel.days !== plan.days && <span className="convoy-modifier">车马行策 {travel.days - plan.days > 0 ? "+" : ""}{travel.days - plan.days}日</span>}
         </div>
@@ -818,8 +899,9 @@ function RouteCard({
             <div className={readiness.combatReady ? "is-sound" : "is-tight"}><dt>战阵</dt><dd>{readiness.combatReady ? "主副齐" : `${readiness.selectedCrewCount}/3人`}</dd></div>
           </dl>
           <div className="route-readiness-notes">
-            {readiness.warnings.slice(0, 3).map((warning) => <span key={warning} className="is-warning">！{warning}</span>)}
-            {readiness.strengths.slice(0, Math.max(1, 3 - readiness.warnings.length)).map((strength) => <span key={strength} className="is-strength">✓ {strength}</span>)}
+            {insight.borderSegments > 0 && <span className={`route-readiness-cover fit-${routeCoverAssessment.fit}`}>{routeCover.seal} 身份 · {routeCover.title} · {routeCoverAssessment.fitLabel}</span>}
+            {readiness.warnings.slice(0, insight.borderSegments > 0 ? 2 : 3).map((warning) => <span key={warning} className="is-warning">！{warning}</span>)}
+            {readiness.strengths.slice(0, Math.max(1, (insight.borderSegments > 0 ? 2 : 3) - readiness.warnings.length)).map((strength) => <span key={strength} className="is-strength">✓ {strength}</span>)}
           </div>
         </section>
         <p className="route-cities">{cities}</p>
@@ -830,7 +912,7 @@ function RouteCard({
           <button disabled={insight.fullySurveyed || !hasScout} onClick={() => onInvestigate(plan, "scout")}>{hasScout ? "遣趟子手 · 1日" : "需趟子手"}</button>
         </div>
       </div>
-      <button className="route-pick" disabled={disabled} onClick={() => onChoose(plan)}>{disabled ? "先选足三名随行人" : readiness.tone === "danger" ? "知险仍按此路出发" : "按此路出发"}</button>
+      <button className="route-pick" disabled={disabled || game.silver < routeCover.cost} onClick={() => onChoose(plan)}>{disabled ? "先选足三名随行人" : game.silver < routeCover.cost ? `行装尚缺 ${routeCover.cost - game.silver} 两` : readiness.tone === "danger" ? "知险仍按此路出发" : "按此路出发"}</button>
     </article>
   );
 }
@@ -861,7 +943,7 @@ function App() {
   }, []);
 
   useEffect(() => {
-    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive()) return;
+    if (!game || launch !== "game" || developmentEndingPreviewId() || developmentBattlePreviewId() || developmentSettlementPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive()) return;
     const handle = window.setTimeout(() => {
       saveGame(game).then(() => {
         setSavePulse(true);
@@ -954,12 +1036,12 @@ function App() {
   if (launch === "title" || !game) {
     return (
       <TitleScreen
-        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive()}
+        hasSave={Boolean(savedGame) || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentArmyEventPreviewActive()}
         legacy={visibleLegacy}
         onNew={() => setLaunch("setup")}
         onContinue={() => {
           const source = savedGame ?? createInitialGame(1208, "linan-guild");
-          setGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source)))))));
+          setGame(developmentArmyEventPreviewGame(developmentFrontlinePreviewGame(developmentCoverPreviewGame(developmentRoutePreviewGame(developmentSettlementPreview(developmentBattlePreviewGame(developmentEndingPreview(source))))))));
           setLaunch("game");
         }}
       />
@@ -997,6 +1079,15 @@ function App() {
   const currentCity = cityById(game.currentCityId);
   const activeCrew = game.activeCrewIds.map((id) => game.crew.find((member) => member.id === id)).filter((member) => Boolean(member));
   const journeyStance = travelStanceById(game.journey?.stance);
+  const previewedRoutePlan = routePlans.find((plan) => plan.id === effectiveRoutePreviewId) ?? routePlans[0] ?? game.journey?.plan;
+  const planningBorderFactions = previewedRoutePlan ? routeBorderFactions(game, previewedRoutePlan) : [];
+  const planningCoverTarget = planningBorderFactions[0] ?? null;
+  const journeyCover = travelCoverById(game.journey?.coverId);
+  const journeyCoverAssessment = travelCoverAssessment(game, journeyCover.id, planningCoverTarget);
+  const currentBorderFaction = game.currentEvent?.kind === "border" && game.journey
+    ? game.cities[game.journey.plan.cityIds[game.journey.segmentIndex + 1]]?.owner ?? null
+    : null;
+  const currentBorderCoverAssessment = currentBorderFaction ? travelCoverAssessment(game, journeyCover.id, currentBorderFaction) : null;
   const stopoverRouteId = game.currentEvent?.kind === "waystation" && game.journey ? game.journey.plan.routeIds[game.journey.segmentIndex] : null;
   const stopoverForecast = stopoverRouteId ? segmentTravelForecast(game, stopoverRouteId) : null;
   const currentOffice = game.offices[game.currentCityId];
@@ -1438,6 +1529,37 @@ function App() {
                 </div>
                 <p><b>{journeyStance.seal}</b>{journeyStance.description}</p>
               </section>
+              <section className="cover-planning" aria-label="选择跨境过关身份">
+                <div className="cover-planning-heading">
+                  <span>行装 · 过关身份</span>
+                  <b>{planningCoverTarget ? `首入${FACTIONS[planningCoverTarget].short}境` : "本路不跨境"}</b>
+                </div>
+                <p>身份只在出城时收一次备办费；镖单、随员籍贯与职司越能互相印证，边关越不容易识破。</p>
+                <div className="cover-picks">
+                  {TRAVEL_COVER_LIST.map((cover) => {
+                    const assessment = travelCoverAssessment(game, cover.id, planningCoverTarget);
+                    const selected = journeyCover.id === cover.id;
+                    const unaffordable = game.silver < cover.cost;
+                    const reason = assessment.strengths[0] ?? assessment.warnings[0] ?? cover.description;
+                    return (
+                      <button
+                        key={cover.id}
+                        className={`cover-${cover.id} fit-${assessment.fit} ${selected ? "is-selected" : ""}`}
+                        aria-pressed={selected}
+                        disabled={unaffordable}
+                        onClick={() => setGame(setTravelCover(game, cover.id))}
+                      >
+                        <i>{cover.seal}</i>
+                        <span><b>{cover.title}</b><small>{cover.subtitle}</small><em>{reason}</em></span>
+                        <strong><small>{cover.cost ? `${cover.cost} 两` : "不费银"}</small><b>{assessment.fitLabel}</b></strong>
+                      </button>
+                    );
+                  })}
+                </div>
+                <div className={`cover-verdict fit-${journeyCoverAssessment.fit}`}>
+                  <i>{journeyCover.seal}</i><span><small>当前身份 · {journeyCoverAssessment.fitLabel}</small><b>{journeyCover.title}</b><em>{journeyCoverAssessment.strengths[0] ?? journeyCoverAssessment.warnings[0] ?? journeyCover.description}</em></span>
+                </div>
+              </section>
               <div className="route-list">{routePlans.map((plan, index) => <RouteCard key={plan.id} game={game} plan={plan} index={index} highlighted={plan.id === effectiveRoutePreviewId} onPreview={() => setPreviewRoutePlanId(plan.id)} disabled={game.activeCrewIds.length !== 3} onInvestigate={(picked, method) => setGame(investigateRoute(game, picked, method))} onChoose={(picked) => setGame(chooseRoute(game, picked))} />)}</div>
             </div>
           )}
@@ -1465,6 +1587,7 @@ function App() {
                 <p><span>地形</span><b>{TERRAIN_LABEL[routeById(game.journey.plan.routeIds[game.journey.segmentIndex]).terrain]}</b></p>
                 <p><span>当前天候</span><b className={`journey-weather weather-${forecast.weather.kind}`}>{forecast.weather.seal} · {forecast.weather.label}<small>{forecast.weatherEffect.note}</small></b></p>
                 <p><span>行程方略</span><b className={`journey-stance stance-${journeyStance.id}`}>{journeyStance.seal} · {journeyStance.title}</b></p>
+                <p><span>过关身份</span><b className={`journey-cover cover-${journeyCover.id}`}>{journeyCover.seal} · {journeyCover.title}{game.journey!.coverBlown ? "（已败露）" : ""}</b></p>
                 <p><span>车马耗用</span><b>粮 {forecast.supplyCost} · 马力 {forecast.staminaCost}</b></p>
                 {activeTradeGood && <p><span>随车副货</span><b>{activeTradeGood.seal} · {activeTradeGood.name}（本钱 {game.journey!.tradeLot!.purchasePrice} 两）</b></p>}
                 </>;
@@ -1505,6 +1628,13 @@ function App() {
               <div className="event-context">
                 <span>第 {game.day} 日</span><span>余粮 {game.supplies}</span><span>银 {game.silver} 两</span>
               </div>
+              {game.currentEvent.kind === "border" && currentBorderCoverAssessment && (
+                <div className={`border-cover-slip fit-${currentBorderCoverAssessment.fit}`}>
+                  <i>{journeyCover.seal}</i>
+                  <span><small>关前口供 · {currentBorderCoverAssessment.fitLabel}</small><b>{journeyCover.title}</b><em>{currentBorderCoverAssessment.strengths[0] ?? currentBorderCoverAssessment.warnings[0] ?? "凭现有行装应验"}</em></span>
+                  <strong>{game.journey?.coverBlown ? "已败露" : currentBorderCoverAssessment.definition.id === "open-escort" ? "亮旗" : "待验"}</strong>
+                </div>
+              )}
               {game.currentEvent.kind === "waystation" && stopoverRouteId && stopoverForecast && (
                 <section className="stopover-strategy" aria-label="在落脚点改换行程方略">
                   <div className="stopover-next"><span>下一程 · {routeById(stopoverRouteId).name}<small className={`weather-${stopoverForecast.weather.kind}`}>{stopoverForecast.weather.seal} · {stopoverForecast.weather.label} · {stopoverForecast.weatherEffect.note}</small></span><b>{stopoverForecast.days} 日 · 粮 {stopoverForecast.supplyCost} · 马力 {stopoverForecast.staminaCost}</b></div>

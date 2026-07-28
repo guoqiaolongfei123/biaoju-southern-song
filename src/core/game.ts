@@ -46,6 +46,7 @@ import {
 } from "./conductContent";
 import { originById } from "./originContent";
 import { travelStanceById } from "./travelContent";
+import { routeBorderFactions, travelCoverAssessment, travelCoverById } from "./travelCoverContent";
 import { stopoverTheme } from "./stopoverContent";
 import { TRADE_GOODS, localTradeGood, tradeDemandLabel, tradeSaleValue } from "./tradeContent";
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "./martialContent";
@@ -102,6 +103,7 @@ import type {
   RouteState,
   Settlement,
   TravelEvent,
+  TravelCoverId,
   TravelStance,
   TradeGoodId,
   WagonId,
@@ -642,6 +644,9 @@ export function departureReadinessForPlan(game: GameState, plan: RoutePlan): Dep
     if (owner !== previousOwner && !hasActivePermit(game, owner) && !result.includes(owner)) result.push(owner);
     return result;
   }, []);
+  const borderFactions = routeBorderFactions(game, plan);
+  const cover = travelCoverAssessment(game, journey?.coverId ?? "open-escort", missingBorderFactions[0] ?? borderFactions[0] ?? null);
+  const coverCostShortfall = Math.max(0, cover.definition.cost - game.silver);
 
   const warnings: string[] = [];
   const strengths: string[] = [];
@@ -665,11 +670,16 @@ export function departureReadinessForPlan(game: GameState, plan: RoutePlan): Dep
   if (routeTerrains.includes("river") && game.convoy.cargoIntegrity < 75) warnings.push("水路在前，当前镖物成色偏低");
   if (roles.has("车把式")) strengths.push("车把式可应对坏轴与途中抢修");
   if (roles.has("医师") && (game.convoy.leaderHp < 80 || woundedSelected.length)) strengths.push("随队医师可在落脚时诊治");
-  if (missingBorderFactions.length) warnings.push(`跨${missingBorderFactions.map((id) => FACTIONS[id].short).join("、")}境尚无路引`);
+  if (missingBorderFactions.length && cover.definition.id === "open-escort") warnings.push(`跨${missingBorderFactions.map((id) => FACTIONS[id].short).join("、")}境尚无路引，也未备过关身份`);
+  else if (missingBorderFactions.length) {
+    if (cover.fit === "strong" || cover.fit === "usable") strengths.push(`${cover.definition.title}·${cover.fitLabel}，可在关前应验`);
+    else warnings.push(`${cover.definition.title}·${cover.fitLabel}，关前容易露出破绽`);
+  }
   else if (insight.borderSegments > 0) strengths.push("所涉异境路引已备");
+  if (coverCostShortfall > 0) warnings.push(`备办${cover.definition.title}尚缺 ${coverCostShortfall} 两`);
 
   const resourcePressure = Math.max(0, -supplyBalance) * 3 + Math.max(0, -staminaBalance);
-  const hardDanger = selectedCrewCount !== 3 || insight.blockedSegments > 0 || deadlineMargin < 0 || resourcePressure >= 45;
+  const hardDanger = selectedCrewCount !== 3 || insight.blockedSegments > 0 || deadlineMargin < 0 || resourcePressure >= 45 || coverCostShortfall > 0;
   const tone: DepartureReadinessTone = hardDanger ? "danger" : warnings.length ? "caution" : "ready";
   const label = tone === "ready"
     ? "粮马齐备，可以成行"
@@ -1056,6 +1066,8 @@ export function acceptContract(game: GameState, contractId: string): GameState {
       crewIds: [...game.activeCrewIds],
       battleVictories: 0,
       stance: "steady",
+      coverId: "open-escort",
+      coverBlown: false,
       escortHealth: contract.kind === "escort" ? 100 : undefined,
       issuerFaction: game.cities[contract.from].owner,
       expectedDestinationOwner: game.cities[contract.to].owner,
@@ -1149,6 +1161,13 @@ export function setTravelStance(game: GameState, stance: TravelStance): GameStat
   return { ...game, journey: { ...game.journey, stance } };
 }
 
+export function setTravelCover(game: GameState, coverId: TravelCoverId): GameState {
+  if (game.phase !== "planning" || !game.journey) return game;
+  const cover = travelCoverById(coverId);
+  if (cover.cost > game.silver) return game;
+  return { ...game, journey: { ...game.journey, coverId, coverBlown: false } };
+}
+
 export function setMartialArt(game: GameState, martialArtId: MartialArtId): GameState {
   if ((game.phase !== "map" && game.phase !== "planning") || !MARTIAL_ARTS[martialArtId]) return game;
   if (game.martialArtId === martialArtId) return game;
@@ -1186,10 +1205,18 @@ export function toggleJourneyCrew(game: GameState, memberId: string): GameState 
 }
 
 export function chooseRoute(game: GameState, plan: RoutePlan): GameState {
-  if (!game.journey || game.activeCrewIds.length !== 3) return game;
+  if (game.phase !== "planning" || !game.journey || game.activeCrewIds.length !== 3) return game;
   const ready = game.activeCrewIds.every((id) => (game.crew.find((member) => member.id === id)?.hp ?? 0) >= 20);
   if (!ready) return game;
-  return { ...game, phase: "travel", journey: { ...game.journey, plan, crewIds: [...game.activeCrewIds] } };
+  const cover = travelCoverById(game.journey.coverId);
+  if (game.silver < cover.cost) return game;
+  return {
+    ...game,
+    phase: "travel",
+    silver: game.silver - cover.cost,
+    news: cover.cost > 0 ? [`【行装备牒】花 ${cover.cost} 两备下「${cover.title}」，沿途须让口供、行头与镖物彼此对得上。`, ...game.news].slice(0, 6) : game.news,
+    journey: { ...game.journey, plan, crewIds: [...game.activeCrewIds], coverId: cover.id, coverBlown: false },
+  };
 }
 
 export interface CityAidOffer {
@@ -1610,6 +1637,28 @@ export function borderPassageCost(game: GameState, targetFaction: FactionId, sen
   return Math.max(4, Math.ceil(base * factionStanding(game.relations[targetFaction] ?? 0).passageMultiplier * principlePassageMultiplier(game)));
 }
 
+export interface BorderCoverForecast {
+  available: boolean;
+  sensitive: boolean;
+  exposureRisk: number;
+  assessment: ReturnType<typeof travelCoverAssessment>;
+}
+
+export function borderCoverForecast(game: GameState, targetFaction: FactionId): BorderCoverForecast {
+  const coverId = game.journey?.coverId ?? "open-escort";
+  const assessment = travelCoverAssessment(game, coverId, targetFaction);
+  const sensitive = game.journey ? isBorderSensitive(game.journey.contract) : false;
+  const relationCover = factionStanding(game.relations[targetFaction] ?? 0).inspectionCover;
+  const stanceCover = travelStanceById(game.journey?.stance).inspectionCover;
+  const baseRisk = sensitive ? 0.58 : 0.34;
+  return {
+    available: coverId !== "open-escort" && !game.journey?.coverBlown,
+    sensitive,
+    exposureRisk: Math.max(0.05, Math.min(0.82, baseRisk - assessment.inspectionCover - relationCover - stanceCover)),
+    assessment,
+  };
+}
+
 export function banditTollCost(game: GameState): number {
   return Math.ceil(22 * principlePassageMultiplier(game));
 }
@@ -1732,8 +1781,11 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
     const concealSupplyCost = Math.max(0, (hasConvoyUpgrade(game.convoy, "hidden-compartment") ? 1 : 2) - principleConcealSaving(game));
     const subject = journey.contract.kind === "escort" ? "护送之人" : journey.contract.kind === "letter" ? "随身文书" : "车上镖物";
     const concealLabel = journey.contract.kind === "escort" ? "乔装换名过关" : journey.contract.kind === "letter" ? "夹藏密函过关" : "换票分装过关";
+    const coverForecast = borderCoverForecast(game, destinationOwner);
+    const coverRisk = Math.round(coverForecast.exposureRisk * 100);
     const choices = [
       ...(permitValid ? [choice("permit", `出示${FACTIONS[destinationOwner].short}境路引`, sensitive ? `路引可用至第 ${permitExpiresDay} 日；敏感镖物仍有小概率被抽验` : `路引可用至第 ${permitExpiresDay} 日；免去关税与例行开箱`, sensitive ? "risk" : "safe")] : []),
+      ...(coverForecast.available ? [choice("cover", `依「${coverForecast.assessment.definition.title}」应验`, `${coverForecast.assessment.fitLabel} · 被识破约 ${coverRisk}%${coverForecast.assessment.strengths[0] ? `；${coverForecast.assessment.strengths[0]}` : ""}`, coverRisk <= 22 ? "safe" : coverRisk <= 45 ? "risk" : "danger")] : []),
       choice("papers", "商队名册通关", `花 ${passageCost} 两疏通关节${sensitive ? "；敏感镖物仍可能败露" : "，保住封条"}${journeyHasRole(game, "账房") ? "（账房识牒）" : ""}`, sensitive ? "risk" : "safe"),
       ...(sensitive && journey.contract.secretKnown ? [choice("conceal", concealLabel, `延误 1 日、消耗 ${concealSupplyCost} 份补给，以假身份避开查验${hasPrinciple(game, "shadow-pass") ? "（暗渡关山）" : hasConvoyUpgrade(game.convoy, "hidden-compartment") ? "（暗格夹层）" : ""}`, "safe")] : []),
       choice(
@@ -1755,7 +1807,7 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
         kind: "border",
         eyebrow: "国界在前方移动了",
         title: "旧关牒，过不了新关",
-        description: `${cityById(segmentTo).name}前方已经换了旗号。巡骑要求查验${subject}；${journey.contract.sealRequired ? "而镖单明令封条不得破损。" : "若被扣留，交付时限便难以保证。"}${permitValid ? `匣中那张${FACTIONS[destinationOwner].name}路引仍在限期之内。` : ""}${sensitive && journey.contract.secretKnown ? "你已查明此镖经不起细查，好在还能提前换一套身份。" : ""}`,
+        description: `${cityById(segmentTo).name}前方已经换了旗号。巡骑要求查验${subject}；${journey.contract.sealRequired ? "而镖单明令封条不得破损。" : "若被扣留，交付时限便难以保证。"}${permitValid ? `匣中那张${FACTIONS[destinationOwner].name}路引仍在限期之内。` : ""}${coverForecast.available ? `镖队已经换作「${coverForecast.assessment.definition.title}」，但口供与行头仍要经得起盘问。` : ""}${sensitive && journey.contract.secretKnown ? "你已查明此镖经不起细查，好在还能提前换一套身份。" : ""}`,
         choices,
       },
     };
@@ -2523,7 +2575,28 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
     }
     return next;
   }
-  if (kind === "border" && choiceId === "permit") {
+  if (kind === "border" && choiceId === "cover") {
+    const targetCityId = next.journey!.plan.cityIds[next.journey!.segmentIndex + 1];
+    const targetFaction = next.cities[targetCityId].owner;
+    const forecast = borderCoverForecast(next, targetFaction);
+    if (!forecast.available) return next;
+    const roll = randomStep(next.rngState);
+    next = { ...next, rngState: roll.state };
+    if (roll.value < forecast.exposureRisk) {
+      const relation = clampFactionRelation((next.relations[targetFaction] ?? 0) - 3);
+      return buildBattle({
+        ...next,
+        relations: { ...next.relations, [targetFaction]: relation },
+        journey: { ...next.journey!, coverBlown: true },
+        convoy: { ...next.convoy, morale: Math.max(0, next.convoy.morale - 6) },
+        news: [`【假牒败露】巡骑从口供与${next.journey!.contract.kind === "escort" ? "随行人相貌" : "镖物封记"}中拆穿「${forecast.assessment.definition.title}」；${FACTIONS[targetFaction].name}往来 -3，镖队仓促列阵。`, ...next.news].slice(0, 6),
+      });
+    }
+    next = advanceConduct({
+      ...next,
+      news: [`【借名过关】「${forecast.assessment.definition.title}」的口供、行头与镖物彼此吻合，巡骑查验后放行。`, ...next.news].slice(0, 6),
+    }, { peacefulPassages: 1 });
+  } else if (kind === "border" && choiceId === "permit") {
     const targetCityId = next.journey!.plan.cityIds[next.journey!.segmentIndex + 1];
     const targetFaction = next.cities[targetCityId].owner;
     if (!hasActivePermit(next, targetFaction)) return next;

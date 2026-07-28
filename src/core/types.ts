@@ -25,6 +25,7 @@ export type LegacyId = "guarantor-letter" | "veteran-token" | "merchant-credit" 
 export type PrincipleId = "clear-eyed" | "sealed-oath" | "living-promise" | "shadow-pass" | "peaceful-road";
 export type OriginId = "linan-guild" | "xiangyang-veterans" | "quanzhou-merchants";
 export type TravelStance = "steady" | "haste" | "covert";
+export type TravelCoverId = "open-escort" | "merchant-caravan" | "pilgrim-party" | "military-train";
 export type BattleObjectiveMode = "breakthrough" | "holdout" | "gate-run" | "pursuit";
 export type BattleFormationId = "advance" | "hold" | "horses";
 export type MartialArtId = "guard-spear" | "severing-sabre" | "binding-hands";
@@ -217,6 +218,10 @@ export interface JourneyState {
   crewIds: string[];
   battleVictories?: number;
   stance: TravelStance;
+  /** 出城前备下的过关身份；亮旗正行不作伪装，也不收行装费用。 */
+  coverId?: TravelCoverId;
+  /** 伪装一旦在边关败露，本趟镖不能再次借用同一套身份。 */
+  coverBlown?: boolean;
   /** 活镖的独立人身状态；旧存档与非活镖行程缺省时按 100 处理。 */
   escortHealth?: number;
   issuerFaction?: FactionId;
