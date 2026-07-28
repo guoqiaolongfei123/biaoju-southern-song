@@ -11,9 +11,11 @@ import { regionalWeatherSnapshot, weatherForCity } from "../core/weatherContent"
 import type { CityTier, FactionId, GameState, RouteDefinition, WorldActorKind } from "../core/types";
 import { chinaProjection, MAP_HEIGHT, MAP_WIDTH, projectLonLat } from "../map/projection";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../map/cityLabels";
+import { layoutCityMarkerClusters } from "../map/cityClusters";
 import { detailedCityIds, nearestCityToPoint } from "../map/cityMarkers";
 import { layoutMapActors, type MapIconObstacle } from "../map/mapIconLayout";
 import { layoutRouteLandmarks } from "../map/routeLandmarkLayout";
+import { layoutWeatherMarkers } from "../map/weatherMarkerLayout";
 import { politicalBorderCityIds, routeCrossesPoliticalBorder, routeOwners, splitQuadraticCurve } from "../map/politicalBorders";
 import { routeCandidateAnchorRouteId, routeCandidateCityRole, routeCandidateSeal, type MapRouteCandidate } from "../map/routeComparison";
 import {
@@ -48,6 +50,7 @@ const VIEW_BOXES: Record<MapFocus, MapViewport> = {
 };
 
 const terrainColor = { official: "#90774e", mountain: "#74543d", river: "#52787c" };
+const terrainSeal = { official: "驿", mountain: "岭", river: "舟" };
 const weatherMarkerOffset: Record<string, { x: number; y: number }> = {
   "tibetan-plateau": { x: 0, y: 0 },
   northwest: { x: -18, y: 11 },
@@ -226,6 +229,26 @@ function WeatherGlyph({ kind }: { kind: ReturnType<typeof regionalWeatherSnapsho
   </>;
 }
 
+function WeatherAtmosphereTexture({ kind }: { kind: ReturnType<typeof regionalWeatherSnapshot>[number]["kind"] }) {
+  if (kind === "rain" || kind === "storm") return <g className="weather-texture weather-texture-rain">
+    <path d="M-35 -5 l-8 13 M-20 -9 l-9 15 M-4 -5 l-9 16 M13 -10 L3 7 M30 -6 L20 11 M42 -2 L34 12" />
+    {kind === "storm" && <path className="weather-texture-accent" d="M4 -19 L-5 -2 H2 L-3 13 L14 -7 H6 L12 -19" />}
+  </g>;
+  if (kind === "fog") return <g className="weather-texture weather-texture-fog">
+    <path d="M-43 -10 Q-18 -17 5 -10 T44 -10 M-38 1 Q-12 -6 12 1 T40 1 M-44 12 Q-20 5 4 12 T43 12" />
+  </g>;
+  if (kind === "gale") return <g className="weather-texture weather-texture-gale">
+    <path d="M-42 -10 H17 Q34 -10 28 -22 M-45 1 H35 Q49 1 43 13 M-35 13 H13 Q29 13 23 23" />
+  </g>;
+  if (kind === "frost") return <g className="weather-texture weather-texture-frost">
+    <path d="M-28 -12 v24 M-38 -6 l20 12 M-18 -6 l-20 12 M17 -15 v30 M5 -8 l24 16 M29 -8 L5 8" />
+  </g>;
+  if (kind === "heat") return <g className="weather-texture weather-texture-heat">
+    <path d="M-34 15 Q-43 4 -34 -7 Q-25 -18 -34 -27 M-10 17 Q-19 6 -10 -5 Q-1 -16 -10 -27 M15 17 Q6 6 15 -5 Q24 -16 15 -27 M37 15 Q28 4 37 -7 Q46 -18 37 -27" />
+  </g>;
+  return <g className="weather-texture weather-texture-clear"><path d="M-31 10 Q0 -12 31 10 M-20 18 Q0 5 20 18" /></g>;
+}
+
 function CityGlyph({ tier, color }: { tier: CityTier; color: string }) {
   if (tier === "capital") {
     return (
@@ -348,29 +371,44 @@ export default function WorldMap({
       baselineDetailedCities.has(city.id) && (pinnedCityIds.has(city.id) || city.tier === "capital"),
     ).map((city) => city.id));
   }, [baselineDetailedCities, pinnedCityIds, routeCandidateSignature]);
-  const detailedCityList = useMemo(() => CITIES.filter((city) => detailedCities.has(city.id)), [detailedCities]);
+  const protectedCityIds = useMemo(() => new Set([
+    ...pinnedCityIds,
+    ...CITIES.filter((city) => city.tier === "capital").map((city) => city.id),
+  ]), [pinnedCityIds]);
+  const cityMarkerClusters = useMemo(
+    () => layoutCityMarkerClusters(CITIES, protectedCityIds, mapDetail, (city) => game.cities[city.id]?.owner ?? city.defaultOwner),
+    [protectedCityIds, mapDetail, game.cities],
+  );
+  const cityStackClusters = useMemo(() => cityMarkerClusters.filter((cluster) => cluster.cityIds.length > 1), [cityMarkerClusters]);
+  const individualCityIds = useMemo(() => new Set([
+    ...protectedCityIds,
+    ...cityMarkerClusters.filter((cluster) => cluster.cityIds.length === 1).map((cluster) => cluster.primaryCityId),
+  ]), [protectedCityIds, cityMarkerClusters]);
+  const visibleDetailedCities = useMemo(() => new Set([...detailedCities].filter((cityId) => individualCityIds.has(cityId))), [detailedCities, individualCityIds]);
+  const detailedCityList = useMemo(() => CITIES.filter((city) => visibleDetailedCities.has(city.id)), [visibleDetailedCities]);
   const borderCityIds = useMemo(() => politicalBorderCityIds(game.cities, ROUTES), [game.cities]);
   const borderRouteCount = useMemo(() => ROUTES.filter((route) => routeCrossesPoliticalBorder(game.cities, route)).length, [game.cities]);
   const cityLabels = useMemo(
-    () => layoutCityLabels(detailedCityList, viewport, mapDetail, pinnedCityIds, CITIES, detailedCities),
-    [detailedCityList, viewport, mapDetail, pinnedCityIds, detailedCities],
+    () => layoutCityLabels(detailedCityList, viewport, mapDetail, pinnedCityIds, CITIES, visibleDetailedCities),
+    [detailedCityList, viewport, mapDetail, pinnedCityIds, visibleDetailedCities],
   );
-  const cityRenderOrder = useMemo(() => [...CITIES].sort((a, b) => {
+  const cityRenderOrder = useMemo(() => CITIES.filter((city) => individualCityIds.has(city.id)).sort((a, b) => {
     const priority = (cityId: string) =>
       (borderCityIds.has(cityId) ? 1 : 0)
       + (activeCityIds.has(cityId) ? 2 : 0)
       + (selectedCityId === cityId ? 4 : 0)
       + (game.currentCityId === cityId ? 8 : 0);
     return priority(a.id) - priority(b.id) || a.y - b.y || a.id.localeCompare(b.id);
-  }), [activeCityIds, borderCityIds, selectedCityId, game.currentCityId]);
-  const compactCityCount = CITIES.length - detailedCities.size;
-  const cityIconObstacles = useMemo<MapIconObstacle[]>(() => CITIES.map((city) => {
+  }), [activeCityIds, borderCityIds, selectedCityId, game.currentCityId, individualCityIds]);
+  const compactCityCount = individualCityIds.size - visibleDetailedCities.size;
+  const cityIconObstacles = useMemo<MapIconObstacle[]>(() => [
+    ...CITIES.filter((city) => visibleDetailedCities.has(city.id)).map((city) => {
       const glyphScale = CITY_GLYPH_SCALE[mapDetail][city.tier];
-      const radius = detailedCities.has(city.id)
-        ? (city.tier === "capital" ? 15 : city.tier === "major" ? 12 : 6.5) * glyphScale + 2.2
-        : mapDetail === "wide" ? 5.2 : mapDetail === "mid" ? 4 : 3.2;
+      const radius = (city.tier === "capital" ? 15 : city.tier === "major" ? 12 : 6.5) * glyphScale + 2.2;
       return { id: city.id, x: city.x, y: city.y, radius };
-    }), [mapDetail, detailedCities]);
+    }),
+    ...cityMarkerClusters.map((cluster) => ({ id: `city-cluster:${cluster.id}`, x: cluster.x, y: cluster.y, radius: cluster.radius })),
+  ], [mapDetail, visibleDetailedCities, cityMarkerClusters]);
   const pinnedLandmarkRouteIds = useMemo(() => new Set([
     ...activeRouteIds,
     ...(previewCandidate?.routeIds ?? []),
@@ -411,6 +449,18 @@ export default function WorldMap({
     return layoutMapActors(points, [...cityIconObstacles, ...landmarkObstacles], mapDetail);
   }, [game.worldActors, mapDetail, cityIconObstacles, landmarkObstacles, pinnedLandmarkRouteIds, routeCandidateSignature]);
   const actorsById = useMemo(() => new Map(game.worldActors.map((actor) => [actor.id, actor])), [game.worldActors]);
+  const actorObstacles = useMemo<MapIconObstacle[]>(() => actorLayout.map((layout) => ({
+    id: `actor:${layout.id}`,
+    x: layout.x,
+    y: layout.y,
+    radius: layout.radius,
+  })), [actorLayout]);
+  const weatherMarkerLayout = useMemo(() => layoutWeatherMarkers(regionalWeather.map((weather) => {
+    const point = projectedLabel(...weather.region.center);
+    const offset = weatherMarkerOffset[weather.region.id] ?? { x: 0, y: 0 };
+    return { id: weather.region.id, x: point.x, y: point.y, offsetX: offset.x, offsetY: offset.y };
+  }), [...cityIconObstacles, ...landmarkObstacles, ...actorObstacles], mapDetail), [regionalWeather, cityIconObstacles, landmarkObstacles, actorObstacles, mapDetail]);
+  const weatherByRegionId = useMemo(() => new Map<string, (typeof regionalWeather)[number]>(regionalWeather.map((weather) => [weather.region.id, weather])), [regionalWeather]);
   const stackedActorGroups = actorLayout.filter((group) => group.actorIds.length > 1).length;
   const stackedLandmarkGroups = landmarkLayout.filter((group) => group.landmarkIds.length > 1).length;
 
@@ -487,6 +537,14 @@ export default function WorldMap({
     commitViewport(cityViewport);
   }
 
+  function focusCityCluster(cityIds: string[]) {
+    const clusterViewport = viewportForCities(cityIds);
+    if (!clusterViewport) return;
+    setFocus(null);
+    cancelWheelInteraction();
+    commitViewport(clusterViewport);
+  }
+
   function zoomBy(factor: number, anchor = {
     x: viewportRef.current.x + viewportRef.current.width / 2,
     y: viewportRef.current.y + viewportRef.current.height / 2,
@@ -554,7 +612,7 @@ export default function WorldMap({
     if (!svg) return;
     event.stopPropagation();
     const point = mapPointFromClient(event.clientX, event.clientY, svg.getBoundingClientRect(), viewportRef.current);
-    const nearest = nearestCityToPoint(CITIES.filter((city) => Boolean(game.cities[city.id])), point);
+    const nearest = nearestCityToPoint(CITIES.filter((city) => individualCityIds.has(city.id) && Boolean(game.cities[city.id])), point);
     if (nearest) onSelectCity(nearest.id);
   }
 
@@ -587,7 +645,8 @@ export default function WorldMap({
       )}
       <div className="map-detail-readout" aria-live="polite">
         <b>{mapDetail === "wide" ? "天下总览" : mapDetail === "mid" ? "州府详览" : "驿路近览"}</b>
-          <span>{detailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {landmarkLayout.length}枚路标 · {borderRouteCount}处边路</span>
+          <span>{visibleDetailedCities.size}座城楼{compactCityCount > 0 ? ` · ${compactCityCount}处驿点` : " · 城驿尽显"} · {landmarkLayout.length}枚路标 · {borderRouteCount}处边路</span>
+          {cityStackClusters.length > 0 && <small>{cityStackClusters.length}组密集城驿已合标 · 点击数字印放大展开</small>}
           {stackedLandmarkGroups > 0 && <small>{stackedLandmarkGroups}组相邻关渡已合标 · 放大继续展开</small>}
           {stackedActorGroups > 0 && <small>{stackedActorGroups}组同路行旅已合标 · 放大自动展开</small>}
         {selectedWeather && <small className={`weather-${selectedWeather.kind}`}>{selectedCity?.name} · {selectedWeather.seal}·{selectedWeather.label}</small>}
@@ -690,6 +749,7 @@ export default function WorldMap({
               <g key={weather.region.id} className={`weather-region weather-${weather.kind}`} transform={`translate(${point.x} ${point.y})`}>
                 <g transform={`scale(${scale})`}>
                   <path className="weather-wash" d="M-46 4 Q-42 -18 -24 -15 Q-15 -31 3 -19 Q19 -31 29 -14 Q45 -13 47 5 Q38 21 19 17 Q5 27 -8 18 Q-29 27 -42 13 Z" />
+                  <WeatherAtmosphereTexture kind={weather.kind} />
                 </g>
               </g>
             );
@@ -764,10 +824,11 @@ export default function WorldMap({
             return (
               <g key={route.id} className={`route route-${route.terrain} route-condition-${knownCondition} ${intelClass} ${active ? "is-active" : ""}`}>
                 <path className="route-hit" d={path} />
+                <path className="route-shadow" d={path} />
                 <path className="route-casing" d={path} />
                 <path className="route-line" d={path} stroke={active ? "#e0b85d" : terrainColor[route.terrain]} />
                 <path className="route-pattern" d={path} />
-                {active && <circle className="route-marker" cx={mx} cy={my} r="3.5" />}
+                {active && knownCondition === "clear" && <g className={`route-active-seal terrain-${route.terrain}`} transform={`translate(${mx} ${my})`}><circle r="5.2" /><text y="2" textAnchor="middle">{terrainSeal[route.terrain]}</text></g>}
                 {knownCondition !== "clear" && <g className={`route-condition-seal condition-${knownCondition} ${intelAge > 2 ? "is-stale" : ""}`} transform={`translate(${mx} ${my})`}><circle r="5" /><text y="2" textAnchor="middle">{conditionEffect.seal}</text></g>}
                 <title>{route.name} · {TERRAIN_LABEL[route.terrain]} · {route.days}日 · {conditionEffect.label} · {intelAge <= 2 ? "新报" : intelAge <= 6 ? `${intelAge}日前旧报` : "仅有传闻"}</title>
               </g>
@@ -808,13 +869,15 @@ export default function WorldMap({
         </g>
 
         <g className={`weather-system weather-detail-${mapDetail}`} aria-label={`第${game.day}日天下区域天候`}>
-          {regionalWeather.map((weather) => {
-            const point = projectedLabel(...weather.region.center);
-            const offset = weatherMarkerOffset[weather.region.id] ?? { x: 0, y: 0 };
+          {weatherMarkerLayout.map((layout) => {
+            const weather = weatherByRegionId.get(layout.id);
+            if (!weather) return null;
             const scale = mapDetail === "wide" ? 1 : mapDetail === "mid" ? .72 : .5;
+            const anchorDx = layout.x - layout.markerX;
+            const anchorDy = layout.y - layout.markerY;
             return (
-              <g key={weather.region.id} className={`weather-region weather-${weather.kind}`} transform={`translate(${point.x + offset.x} ${point.y + offset.y})`}>
-                {(offset.x !== 0 || offset.y !== 0) && <path className="weather-anchor-line" d={`M0 0 L${-offset.x} ${-offset.y}`} />}
+              <g key={weather.region.id} className={`weather-region weather-${weather.kind}`} transform={`translate(${layout.markerX} ${layout.markerY})`}>
+                {(Math.abs(anchorDx) > 1 || Math.abs(anchorDy) > 1) && <path className="weather-anchor-line" d={`M0 0 L${anchorDx} ${anchorDy}`} />}
                 <g transform={`scale(${scale})`}>
                   <path className="weather-cartouche" d="M-28 -12 Q0 -19 28 -12 L31 10 Q0 16 -31 10 Z" />
                   <g className="weather-symbol" transform="translate(-13 -1)"><WeatherGlyph kind={weather.kind} /></g>
@@ -984,6 +1047,34 @@ export default function WorldMap({
                   onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onSelectCity(city.id); }}
                 />
                 <title>{city.name} · 东经 {city.lon.toFixed(2)}° · 北纬 {city.lat.toFixed(2)}°{frontline.visible ? ` · ${frontline.label} · 守势 ${frontline.defense} / 兵压 ${frontline.pressure}` : ""}</title>
+              </g>
+            );
+          })}
+        </g>
+
+        <g className={`city-cluster-layer city-cluster-detail-${mapDetail}`} aria-label="密集城驿合标">
+          {cityStackClusters.map((cluster) => {
+            const members = cluster.cityIds.map((id) => CITIES.find((city) => city.id === id)).filter((city) => Boolean(city));
+            const primary = members.find((city) => city?.id === cluster.primaryCityId)!;
+            const faction = FACTIONS[game.cities[primary.id].owner];
+            const names = members.map((city) => city!.name).join("、");
+            return (
+              <g
+                key={cluster.id}
+                className="city-cluster"
+                transform={`translate(${cluster.x} ${cluster.y})`}
+                role="button"
+                tabIndex={0}
+                aria-label={`${names}，共${cluster.cityIds.length}处城驿，点击放大展开`}
+                style={{ color: faction.color }}
+                onClick={(event) => { event.stopPropagation(); focusCityCluster(cluster.cityIds); }}
+                onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") focusCityCluster(cluster.cityIds); }}
+              >
+                <circle className="city-cluster-halo" r={cluster.radius + 3.2} />
+                <path className="city-cluster-paper" d={`M0 ${-cluster.radius} L${cluster.radius} 0 L0 ${cluster.radius} L${-cluster.radius} 0 Z`} />
+                <circle className="city-cluster-core" r={cluster.radius * .56} />
+                <text y={cluster.radius * .23} textAnchor="middle">{cluster.cityIds.length}</text>
+                <title>{names} · 合并显示 {cluster.cityIds.length} 处 · 点击放大展开</title>
               </g>
             );
           })}

@@ -1,0 +1,61 @@
+import type { MapDetail } from "./cityLabels";
+import type { MapIconObstacle } from "./mapIconLayout";
+
+export interface WeatherMarkerPoint {
+  id: string;
+  x: number;
+  y: number;
+  offsetX?: number;
+  offsetY?: number;
+}
+
+export interface WeatherMarkerLayout extends WeatherMarkerPoint {
+  markerX: number;
+  markerY: number;
+  radius: number;
+}
+
+const MARKER_RADIUS: Record<MapDetail, number> = { wide: 32, mid: 23, close: 16 };
+const SEARCH_RING: Record<MapDetail, number> = { wide: 37, mid: 25, close: 18 };
+
+function overlapAmount(x: number, y: number, radius: number, obstacle: MapIconObstacle): number {
+  return Math.max(0, radius + obstacle.radius - Math.hypot(x - obstacle.x, y - obstacle.y));
+}
+
+function rotationFor(id: string): number {
+  return id.split("").reduce((sum, character) => sum + character.charCodeAt(0), 0) % 8;
+}
+
+/** Places large weather cartouches after gameplay icons have been laid out. */
+export function layoutWeatherMarkers(
+  points: readonly WeatherMarkerPoint[],
+  obstacles: readonly MapIconObstacle[],
+  detail: MapDetail,
+): WeatherMarkerLayout[] {
+  const occupied = [...obstacles];
+  return [...points].sort((a, b) => a.id.localeCompare(b.id)).map((point) => {
+    const preferredX = point.x + (point.offsetX ?? 0);
+    const preferredY = point.y + (point.offsetY ?? 0);
+    const radius = MARKER_RADIUS[detail];
+    const ring = SEARCH_RING[detail];
+    const directions: Array<[number, number]> = [
+      [0, 0], [0, -1], [1, 0], [0, 1], [-1, 0],
+      [.72, -.72], [.72, .72], [-.72, .72], [-.72, -.72],
+      [0, -1.65], [1.65, 0], [0, 1.65], [-1.65, 0],
+    ];
+    const rotation = rotationFor(point.id);
+    const candidates = [directions[0], ...directions.slice(1 + rotation, 9), ...directions.slice(1, 1 + rotation), ...directions.slice(9)];
+    let best = { x: preferredX, y: preferredY, score: Number.POSITIVE_INFINITY };
+    for (const [dx, dy] of candidates) {
+      const x = preferredX + dx * ring;
+      const y = preferredY + dy * ring;
+      const overlap = occupied.reduce((sum, obstacle) => sum + overlapAmount(x, y, radius + 1.5, obstacle), 0);
+      const score = overlap * 100 + Math.hypot(x - point.x, y - point.y) * .35;
+      if (score < best.score) best = { x, y, score };
+      if (overlap === 0 && dx === 0 && dy === 0) break;
+    }
+    occupied.push({ id: `weather:${point.id}`, x: best.x, y: best.y, radius });
+    return { ...point, markerX: best.x, markerY: best.y, radius };
+  });
+}
+
