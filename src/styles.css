@@ -143,6 +143,16 @@ button:focus-visible, [role="button"]:focus-visible { outline: 2px solid var(--g
 .save-state.is-saving { color: var(--jade-bright); }
 .icon-button { width: 33px; height: 33px; border: 1px solid var(--line); color: #9d927e; background: transparent; cursor: pointer; }
 .icon-button:hover { color: var(--gold); border-color: var(--paper-dark); }
+.audio-toggle { position: relative; display: grid; place-items: center; overflow: visible; transition: color .18s ease, border-color .18s ease, background .18s ease, opacity .18s ease; }
+.audio-toggle > span { font: 14px var(--font-display); line-height: 1; transform: rotate(-2deg); }
+.audio-toggle::after { content: ""; position: absolute; right: 3px; top: 4px; width: 5px; height: 5px; border-top: 1px solid currentColor; border-right: 1px solid currentColor; border-radius: 0 6px 0 0; opacity: .28; transform: rotate(18deg); }
+.audio-toggle.is-audible { color: #7fa88b; border-color: rgba(102,151,116,.42); background: rgba(73,125,91,.06); }
+.audio-toggle.is-audible::after { opacity: .8; animation: audio-breathe 2.4s ease-in-out infinite; }
+.audio-toggle.is-muted { color: #746d61; opacity: .82; }
+.audio-toggle.is-muted::before { content: ""; position: absolute; width: 19px; border-top: 1px solid #9b5748; transform: rotate(-38deg); }
+.audio-toggle.is-floating { position: fixed; z-index: 80; right: 22px; bottom: 20px; width: 38px; height: 38px; color: #bca97f; border-color: rgba(205,174,107,.34); background: rgba(20,17,13,.78); box-shadow: 0 8px 24px rgba(0,0,0,.28); backdrop-filter: blur(5px); }
+.battle-root .audio-toggle.is-floating { top: 16px; bottom: auto; }
+@keyframes audio-breathe { 0%, 100% { transform: rotate(18deg) scale(.8); opacity: .45; } 50% { transform: rotate(18deg) scale(1.18); opacity: .95; } }
 .game-layout { height: calc(100vh - 72px); min-height: 0; display: grid; grid-template-columns: minmax(0, 1fr) minmax(440px, var(--panel-width)); }
 .map-column { min-width: 0; display: grid; grid-template-rows: minmax(0, 1fr) 132px; background: #201c16; }
 .side-panel { min-height: 0; overflow: auto; padding: 28px 28px 44px; border-left: 1px solid var(--line); background: linear-gradient(115deg, rgba(255,255,255,.018), transparent 35%), #17140f; scrollbar-width: thin; scrollbar-color: #63543b #181510; }

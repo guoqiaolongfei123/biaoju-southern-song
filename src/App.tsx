@@ -86,6 +86,8 @@ import { routeCandidateSeal, type MapRouteCandidate } from "./map/routeCompariso
 import CrewEquipmentPanel from "./components/CrewEquipmentPanel";
 import LeaderProgressionPanel from "./components/LeaderProgressionPanel";
 import CoreCombatFocusPicker from "./components/CoreCombatFocusPicker";
+import AudioToggle from "./components/AudioToggle";
+import { useGameAudio } from "./audio/useGameAudio";
 
 type LaunchState = "loading" | "title" | "setup" | "game";
 const CITY_WORKSPACE_TABS: Array<{ id: CityWorkspaceTab; seal: string; label: string; note: string }> = [
@@ -1144,6 +1146,7 @@ function App() {
   const [battlePreviewConfig] = useState<BattleConfig | null>(developmentBattleFixture);
   const sidePanelRef = useRef<HTMLElement>(null);
   const visibleLegacy = developmentLegacyPreview(legacy);
+  const gameAudio = useGameAudio({ launch, game, battlePreviewActive: Boolean(battlePreviewConfig) });
 
   useEffect(() => {
     Promise.all([
@@ -1192,6 +1195,7 @@ function App() {
 
   if (battlePreviewConfig) return (
     <main className="game-root battle-root">
+      <AudioToggle enabled={gameAudio.enabled} onToggle={gameAudio.toggle} floating />
       <Suspense fallback={<div className="loading-screen"><div className="loading-seal">战</div><p>正在布置山口…</p></div>}>
         <PhaserBattle config={battlePreviewConfig} onComplete={() => undefined} />
       </Suspense>
@@ -1200,6 +1204,7 @@ function App() {
 
   if (crewPreviewGame) return (
     <main className="crew-preview-root">
+      <AudioToggle enabled={gameAudio.enabled} onToggle={gameAudio.toggle} floating />
       <section className="crew-preview-sheet">
         <header><span className="kicker">开发预览 · 点将定职</span><h1>镖师养成、战职与绝活</h1><p>熟手定战职，老手悟绝活；人物会在自动作战中按各自所长执行你的策略。</p></header>
         <LeaderProgressionPanel game={crewPreviewGame} onChange={setCrewPreviewGame} />
@@ -1255,9 +1260,14 @@ function App() {
   }, [game?.journey?.contract.id]);
 
   if (launch === "loading") return <div className="loading-screen"><div className="loading-seal">镖</div><p>正在展开舆图…</p></div>;
-  if (launch === "setup") return <NewGameScreen legacy={visibleLegacy} onBack={() => setLaunch("title")} onBegin={(originId, seed, legacyId) => { void beginNewGame(originId, seed, legacyId); }} />;
+  if (launch === "setup") return <>
+    <AudioToggle enabled={gameAudio.enabled} onToggle={gameAudio.toggle} floating />
+    <NewGameScreen legacy={visibleLegacy} onBack={() => setLaunch("title")} onBegin={(originId, seed, legacyId) => { void beginNewGame(originId, seed, legacyId); }} />
+  </>;
   if (launch === "title" || !game) {
     return (
+      <>
+      <AudioToggle enabled={gameAudio.enabled} onToggle={gameAudio.toggle} floating />
       <TitleScreen
         hasSave={Boolean(savedGame) || developmentRivalPreviewActive() || developmentRoutePreviewActive() || developmentCoverPreviewActive() || developmentFrontlinePreviewActive() || developmentCaptivityPreviewActive() || developmentRoadInfluencePreviewActive() || developmentArmyEventPreviewActive() || developmentContractEventPreviewActive() || developmentStopoverPreviewActive()}
         legacy={visibleLegacy}
@@ -1268,12 +1278,14 @@ function App() {
           setLaunch("game");
         }}
       />
+      </>
     );
   }
 
   if (game.phase === "battle" && game.pendingBattle) {
     return (
       <main className="game-root battle-root">
+        <AudioToggle enabled={gameAudio.enabled} onToggle={gameAudio.toggle} floating />
         <Suspense fallback={<div className="loading-screen"><div className="loading-seal">战</div><p>正在布置山口…</p></div>}>
           <PhaserBattle config={developmentBattlePreview(game.pendingBattle)} onComplete={(result) => setGame((current) => current ? applyBattleResult(current, result) : current)} />
         </Suspense>
@@ -1376,6 +1388,7 @@ function App() {
         </div>
         <div className="header-actions">
           <span className={`save-state ${savePulse ? "is-saving" : ""}`}>{savePulse ? "已落档" : "自动存档"}</span>
+          <AudioToggle enabled={gameAudio.enabled} onToggle={gameAudio.toggle} />
           <button className="icon-button" onClick={() => setShowHelp(true)} aria-label="查看玩法说明">?</button>
           <button className="icon-button" onClick={() => setLaunch("title")} aria-label="返回题屏">⌂</button>
         </div>
