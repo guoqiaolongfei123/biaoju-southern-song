@@ -56,7 +56,8 @@ import {
   supportCurrentCity,
   startDeputyDispatch,
   stopoverRouteOptions,
-  tradeOffer,
+  tradeOffers,
+  tradeOffersForContract,
   toggleJourneyCrew,
   convoyUpgradePurchaseCost,
   wagonPurchaseCost,
@@ -1003,6 +1004,7 @@ function ContractCard({
   const negotiation = contractNegotiationOffer(game, contract.id);
   const routeAvailable = assessment.plan !== null;
   const inspectVerb = contract.kind === "escort" ? "当面盘问" : contract.kind === "letter" ? "验看信封" : "验看镖物";
+  const tradeProspect = tradeOffersForContract(game, contract).find((offer) => offer.recommended);
   return (
     <article className={`contract-card contract-${contract.kind} ${contract.secretKnown ? "is-investigated" : ""}`}>
       <div className="contract-heading">
@@ -1053,6 +1055,11 @@ function ContractCard({
         </dl>
         <p><span>{assessment.intelLabel}路险 {assessment.knownDanger}</span><span>{assessment.weatherSummary}</span></p>
       </section>
+      {tradeProspect && <section className={`contract-trade-prospect margin-${tradeProspect.marginTone}`} aria-label={`${destination.name}顺路商机：${tradeProspect.name}`}>
+        <i>{tradeProspect.seal}</i>
+        <span><small>顺路商机 · 本地货栈推荐</small><b>{tradeProspect.name}</b><em>{tradeProspect.demandLabel}</em></span>
+        <strong>{tradeProspect.expectedProfitMin >= 0 ? "+" : ""}{tradeProspect.expectedProfitMin === tradeProspect.expectedProfitMax ? tradeProspect.expectedProfitMin : `${tradeProspect.expectedProfitMin}—${tradeProspect.expectedProfitMax >= 0 ? "+" : ""}${tradeProspect.expectedProfitMax}`}<small>两预计盈亏</small></strong>
+      </section>}
       {assessment.specialHandling && <section className="special-handling-note" aria-label={`${assessment.specialHandling.name}特殊规程`}>
         <i>{assessment.specialHandling.seal}</i>
         <div><small>特镖规程 · 接镖前可见</small><b>{assessment.specialHandling.name}</b><p>{assessment.specialHandling.note}</p><em>{assessment.specialHandling.counterplay}</em></div>
@@ -1406,7 +1413,8 @@ function App() {
   const settlementEquipment = game.settlement?.equipmentReward ? EQUIPMENT[game.settlement.equipmentReward] : null;
   const principles = conductPrinciples(game);
   const unlockedPrinciples = principles.filter((principle) => principle.unlocked);
-  const sideTradeOffer = tradeOffer(game);
+  const sideTradeOffers = tradeOffers(game);
+  const loadedTradeOffer = sideTradeOffers.find((offer) => offer.purchased);
   const activeTradeGood = game.journey?.tradeLot ? TRADE_GOODS[game.journey.tradeLot.goodId] : null;
   const activeMartialArt = martialArtById(game.martialArtId);
   const injuredCrewCount = game.crew.filter((member) => member.injury && !member.captivity).length;
@@ -1923,22 +1931,33 @@ function App() {
               {activeSpecialHandling && <section className="planning-special-rule" aria-label={`${activeSpecialHandling.name}行前规程`}>
                 <i>{activeSpecialHandling.seal}</i><div><small>特镖行规</small><b>{activeSpecialHandling.name}</b><p>{activeSpecialHandling.rule}</p><em>{activeSpecialHandling.counterplay}</em></div>
               </section>}
-              {sideTradeOffer && (
-                <section className={`side-trade-lot ${sideTradeOffer.purchased ? "is-loaded" : ""}`} aria-label="顺路搭载本地副货">
-                  <i>{sideTradeOffer.seal}</i>
-                  <div>
-                    <small>本地货栈 · 随镖副货</small>
-                    <b>{sideTradeOffer.name}</b>
-                    <p>{sideTradeOffer.description}</p>
-                    <span>{sideTradeOffer.demandLabel}</span>
+              {sideTradeOffers.length > 0 && (
+                <section className={`side-trade-board ${loadedTradeOffer ? "has-loaded-lot" : ""}`} aria-label="本地货栈副货选择">
+                  <header>
+                    <span><small>本地货栈 · 随镖副货</small><b>{loadedTradeOffer ? `已装载 ${loadedTradeOffer.name}` : `${sideTradeOffers.length} 种货源可择其一`}</b></span>
+                    <em>{loadedTradeOffer ? "货票已落印" : "账房已按各条可行道路试算"}</em>
+                  </header>
+                  <div className="side-trade-options">
+                    {sideTradeOffers.map((offer) => {
+                      const unavailable = Boolean(loadedTradeOffer && !offer.purchased);
+                      return <article key={offer.goodId} className={`side-trade-option margin-${offer.marginTone} ${offer.purchased ? "is-loaded" : ""} ${offer.recommended ? "is-recommended" : ""}`}>
+                        <i>{offer.seal}</i>
+                        <div className="side-trade-copy">
+                          <small>{offer.recommended ? offer.purchased ? "已装车" : "账房荐" : "本地货"}</small>
+                          <b>{offer.name}</b>
+                          <p>{offer.description}</p>
+                          <span>{offer.demandLabel}</span>
+                        </div>
+                        <dl>
+                          <div><dt>本钱</dt><dd>{offer.purchasePrice} 两</dd></div>
+                          <div><dt>预计回银</dt><dd>{offer.expectedRevenueMin === offer.expectedRevenueMax ? offer.expectedRevenueMin : `${offer.expectedRevenueMin}—${offer.expectedRevenueMax}`} 两</dd></div>
+                          <div><dt>预计盈亏</dt><dd>{offer.expectedProfitMin >= 0 ? "+" : ""}{offer.expectedProfitMin === offer.expectedProfitMax ? offer.expectedProfitMin : `${offer.expectedProfitMin}—${offer.expectedProfitMax >= 0 ? "+" : ""}${offer.expectedProfitMax}`} 两</dd></div>
+                        </dl>
+                        <button disabled={offer.purchased || unavailable || game.silver < offer.purchasePrice} onClick={() => setGame(purchaseTradeLot(game, offer.goodId))}>{offer.purchased ? "已随车装载" : unavailable ? "本车已装他货" : game.silver < offer.purchasePrice ? "银钱不足" : `装车 · ${offer.purchasePrice}两`}</button>
+                      </article>;
+                    })}
                   </div>
-                  <dl>
-                    <div><dt>本钱</dt><dd>{sideTradeOffer.purchasePrice} 两</dd></div>
-                    <div><dt>预计回银</dt><dd>{sideTradeOffer.expectedRevenueMin === sideTradeOffer.expectedRevenueMax ? sideTradeOffer.expectedRevenueMin : `${sideTradeOffer.expectedRevenueMin}—${sideTradeOffer.expectedRevenueMax}`} 两</dd></div>
-                    <div><dt>预计盈亏</dt><dd className={sideTradeOffer.expectedProfitMin < 0 ? "is-loss" : ""}>{sideTradeOffer.expectedProfitMin >= 0 ? "+" : ""}{sideTradeOffer.expectedProfitMin === sideTradeOffer.expectedProfitMax ? sideTradeOffer.expectedProfitMin : `${sideTradeOffer.expectedProfitMin}—${sideTradeOffer.expectedProfitMax >= 0 ? "+" : ""}${sideTradeOffer.expectedProfitMax}`} 两</dd></div>
-                  </dl>
-                  <button disabled={sideTradeOffer.purchased || game.silver < sideTradeOffer.purchasePrice} onClick={() => setGame(purchaseTradeLot(game))}>{sideTradeOffer.purchased ? "已随车装载" : game.silver < sideTradeOffer.purchasePrice ? "银钱不足" : `搭载副货 · ${sideTradeOffer.purchasePrice}两`}</button>
-                  <em>最终卖价会随目的地城况与货损变化；放回镖榜时退还本钱。</em>
+                  <footer>最终卖价随目的地城况、路程与货损变化；放回镖榜时，本地牙人照原价退货。</footer>
                 </section>
               )}
               <section className="martial-planning" aria-label="选择镖头武学">

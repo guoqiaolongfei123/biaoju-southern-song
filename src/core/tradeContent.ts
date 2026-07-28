@@ -14,8 +14,8 @@ export interface TradeGoodDefinition {
 }
 
 export const TRADE_GOODS: Record<TradeGoodId, TradeGoodDefinition> = {
-  silk: { id: "silk", name: "江南绫罗", seal: "帛", description: "轻而值重，富城与边镇都有人收。", basePrice: 24, category: "luxury", producerCityIds: ["pingjiang", "jiaxing", "huzhou", "chengdu"] },
-  tea: { id: "tea", name: "团焙新茶", seal: "茶", description: "怕潮怕火，走得越远越见价。", basePrice: 18, category: "staple", producerCityIds: ["huzhou", "jianning", "fuzhou", "quanzhou", "chengdu"] },
+  silk: { id: "silk", name: "江南绫罗", seal: "帛", description: "轻而值重，富城与边镇都有人收。", basePrice: 24, category: "luxury", producerCityIds: ["linan", "pingjiang", "jiaxing", "huzhou", "chengdu"] },
+  tea: { id: "tea", name: "团焙新茶", seal: "茶", description: "怕潮怕火，走得越远越见价。", basePrice: 18, category: "staple", producerCityIds: ["linan", "huzhou", "jianning", "fuzhou", "quanzhou", "chengdu"] },
   salt: { id: "salt", name: "淮浙盐引", seal: "鹽", description: "民生日用，也是关卡最爱细查的货。", basePrice: 17, category: "staple", producerCityIds: ["yangzhou", "zhenjiang", "qingyuan", "quanzhou"] },
   spice: { id: "spice", name: "舶来香药", seal: "香", description: "海港来货，内陆富户与药铺争相收买。", basePrice: 32, category: "luxury", producerCityIds: ["qingyuan", "quanzhou", "guangzhou", "qinzhou"] },
   ironware: { id: "ironware", name: "熟铁器具", seal: "鐵", description: "农具可用、军营也收，乱世尤其紧俏。", basePrice: 27, category: "military", producerCityIds: ["taiyuan", "jingzhao", "jiankang", "xiangyang"] },
@@ -33,9 +33,15 @@ function stableIndex(cityId: string, day: number, seed: number, length: number):
   return length ? hash % length : 0;
 }
 
-export function localTradeGood(cityId: string, day: number, seed: number): TradeGoodDefinition | null {
+export function localTradeGoods(cityId: string, day: number, seed: number, limit = 3): TradeGoodDefinition[] {
   const local = TRADE_GOOD_LIST.filter((good) => good.producerCityIds.includes(cityId));
-  return local.length ? local[stableIndex(cityId, day, seed, local.length)] : null;
+  if (!local.length || limit <= 0) return [];
+  const start = stableIndex(cityId, day, seed, local.length);
+  return Array.from({ length: Math.min(limit, local.length) }, (_, offset) => local[(start + offset) % local.length]);
+}
+
+export function localTradeGood(cityId: string, day: number, seed: number): TradeGoodDefinition | null {
+  return localTradeGoods(cityId, day, seed, 1)[0] ?? null;
 }
 
 function statusDemand(good: TradeGoodDefinition, status: CityState["status"]): number {

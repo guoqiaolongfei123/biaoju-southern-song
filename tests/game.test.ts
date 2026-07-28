@@ -66,6 +66,8 @@ import {
   supplyPurchaseAmount,
   supportCurrentCity,
   tradeOffer,
+  tradeOffers,
+  tradeOffersForContract,
   toggleJourneyCrew,
   trainCrew,
   tuneEquipment,
@@ -81,7 +83,7 @@ import { CITIES, ROUTES } from "../src/core/data";
 import { primaryLandmarkForRoute } from "../src/core/routeLandmarkContent";
 import { migrateSavedGame } from "../src/core/save";
 import { CITY_GLYPH_SCALE, layoutCityLabels, mapDetailForViewportWidth } from "../src/map/cityLabels";
-import { localTradeGood, tradeDemandMultiplier } from "../src/core/tradeContent";
+import { TRADE_GOODS, localTradeGood, localTradeGoods, tradeDemandMultiplier } from "../src/core/tradeContent";
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "../src/core/martialContent";
 import { advanceWorldActors, createInitialWorldActors } from "../src/core/worldActorContent";
 import { createLegacyState, recordLegacyEnding } from "../src/core/legacyContent";
@@ -391,7 +393,9 @@ describe("镖局核心循环", () => {
 
   it("历史产地会提供对应副货，目的地城况会改变需求", () => {
     const base = createInitialGame(1107);
-    expect(localTradeGood("linan", base.day, base.seed)?.id).toBe("books");
+    const linanGoods = localTradeGoods("linan", base.day, base.seed);
+    expect(linanGoods).toHaveLength(3);
+    expect(new Set(linanGoods.map((good) => good.id))).toEqual(new Set(["silk", "tea", "books"]));
     expect(["tea", "salt", "spice"]).toContain(localTradeGood("quanzhou", base.day, base.seed)?.id);
     expect(localTradeGood("zaoyang", base.day, base.seed)).toBeNull();
     const stable = { ...base.cities.xiangyang, status: "stable" as const };
@@ -402,17 +406,25 @@ describe("镖局核心循环", () => {
     expect(tradeDemandMultiplier("silk", "pingjiang", stable, 8)).toBeLessThan(tradeDemandMultiplier("silk", "xiangyang", stable, 8));
   });
 
-  it("行前可用闲银搭载本地副货，放回镖榜会全额退票", () => {
+  it("镖榜会试算多种本地副货，行前可自行择货且放回镖榜会全额退票", () => {
     let game = createInitialGame(1107);
+    const contract = game.contracts.find((item) => item.id === "opening-xiangyang")!;
+    const prospects = tradeOffersForContract(game, contract);
+    expect(prospects).toHaveLength(3);
+    expect(prospects[0].recommended).toBe(true);
+    expect(prospects[0].expectedProfitMin + prospects[0].expectedProfitMax).toBe(Math.max(...prospects.map((offer) => offer.expectedProfitMin + offer.expectedProfitMax)));
     game = acceptContract(game, "opening-xiangyang");
-    const offer = tradeOffer(game)!;
-    expect(offer.name).toBe("版刻书画");
+    const offers = tradeOffers(game);
+    expect(offers).toHaveLength(3);
+    const offer = offers.find((item) => !item.recommended)!;
     expect(offer.expectedRevenueMin).toBeGreaterThan(offer.purchasePrice);
     const silverBefore = game.silver;
-    game = purchaseTradeLot(game);
+    game = purchaseTradeLot(game, offer.goodId);
     expect(game.silver).toBe(silverBefore - offer.purchasePrice);
-    expect(game.journey?.tradeLot).toEqual({ goodId: "books", originCityId: "linan", purchasePrice: offer.purchasePrice });
+    expect(game.journey?.tradeLot).toEqual({ goodId: offer.goodId, originCityId: "linan", purchasePrice: offer.purchasePrice });
     expect(tradeOffer(game)?.purchased).toBe(true);
+    const afterSecondPurchase = purchaseTradeLot(game, offers.find((item) => item.goodId !== offer.goodId)!.goodId);
+    expect(afterSecondPurchase).toBe(game);
     game = cancelContractPlanning(game);
     expect(game.phase).toBe("map");
     expect(game.journey).toBeNull();
@@ -563,12 +575,13 @@ describe("镖局核心循环", () => {
   it("副货在抵达时按路程、城况和实际货损变现", () => {
     let arrived = reachOpeningBorder(true, true);
     const purchasePrice = arrived.journey!.tradeLot!.purchasePrice;
+    const tradeGoodName = TRADE_GOODS[arrived.journey!.tradeLot!.goodId].name;
     arrived = resolveEvent(arrived, "conceal");
     expect(arrived.currentEvent?.kind).toBe("handoff");
     const intact = resolveEvent(arrived, "handoff-original");
     expect(intact.settlement?.tradeRevenue).toBeGreaterThan(purchasePrice);
     expect(intact.settlement?.tradeProfit).toBe((intact.settlement?.tradeRevenue ?? 0) - purchasePrice);
-    expect(intact.settlement?.notes.some((note) => note.includes("版刻书画"))).toBe(true);
+    expect(intact.settlement?.notes.some((note) => note.includes(tradeGoodName))).toBe(true);
     expect(intact.silver).toBe(arrived.silver + (intact.settlement?.reward ?? 0) + (intact.settlement?.tradeRevenue ?? 0) - (intact.settlement?.compensation ?? 0));
     expect(intact.settlement?.finance).toMatchObject({
       openingSilver: arrived.journey!.openingSilver,

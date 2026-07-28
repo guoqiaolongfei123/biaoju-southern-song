@@ -49,7 +49,7 @@ import { travelStanceById } from "./travelContent";
 import { routeBorderFactions, travelCoverAssessment, travelCoverById } from "./travelCoverContent";
 import { stopoverTheme } from "./stopoverContent";
 import { primaryLandmarkForRoute } from "./routeLandmarkContent";
-import { TRADE_GOODS, localTradeGood, tradeDemandLabel, tradeSaleValue } from "./tradeContent";
+import { TRADE_GOODS, localTradeGoods, tradeDemandLabel, tradeSaleValue } from "./tradeContent";
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "./martialContent";
 import { martialProficiencyRank } from "./martialProficiencyContent";
 import { advanceWorldActors, createInitialWorldActors, worldActorDangerModifier, worldActorsOnRoute } from "./worldActorContent";
@@ -1417,50 +1417,87 @@ export interface TradeOffer {
   expectedProfitMax: number;
   demandLabel: string;
   purchased: boolean;
+  recommended: boolean;
+  marginTone: "profit" | "uncertain" | "loss";
 }
 
-export function tradeOffer(game: GameState): TradeOffer | null {
-  if (game.phase !== "planning" || !game.journey) return null;
-  const existing = game.journey.tradeLot;
-  const good = existing ? TRADE_GOODS[existing.goodId] : localTradeGood(game.currentCityId, game.day, game.seed);
-  if (!good) return null;
-  const purchasePrice = existing?.purchasePrice ?? Math.max(8, Math.ceil(
+function tradePurchasePrice(game: GameState, goodId: TradeGoodId): number {
+  const good = TRADE_GOODS[goodId];
+  return Math.max(8, Math.ceil(
     good.basePrice
       * cityStatusEffect(game.cities[game.currentCityId]).priceMultiplier
       * localStanding(game).priceMultiplier
       * rulingFactionStanding(game).priceMultiplier
       * officeDiscount(officeAt(game)?.tier),
   ));
-  const plans = generateRoutePlans(game.journey.contract.from, game.journey.contract.to, game);
-  const destination = game.cities[game.journey.contract.to];
-  const lot = { goodId: good.id, originCityId: game.currentCityId, purchasePrice };
-  const estimates = (plans.length ? plans : [game.journey.plan]).map((plan) => tradeSaleValue(
+}
+
+export function tradeOffersForContract(game: GameState, contract: Contract): TradeOffer[] {
+  if (contract.from !== game.currentCityId || !game.cities[contract.to]) return [];
+  const existing = game.journey?.contract.id === contract.id ? game.journey.tradeLot : undefined;
+  const localGoods = localTradeGoods(contract.from, game.day, game.seed);
+  const goods = existing && !localGoods.some((good) => good.id === existing.goodId)
+    ? [TRADE_GOODS[existing.goodId], ...localGoods]
+    : localGoods;
+  if (!goods.length) return [];
+  const plans = generateRoutePlans(contract.from, contract.to, game);
+  if (!plans.length) return [];
+  const destination = game.cities[contract.to];
+  const quoted = goods.map((good): TradeOffer => {
+    const purchased = existing?.goodId === good.id;
+    const purchasePrice = purchased ? existing.purchasePrice : tradePurchasePrice(game, good.id);
+    const lot = { goodId: good.id, originCityId: game.currentCityId, purchasePrice };
+    const estimates = plans.map((plan) => tradeSaleValue(
     lot,
-    game.journey!.contract.to,
+    contract.to,
     destination,
     routePlanTravelForecast(game, plan).days,
     100,
   ));
-  const expectedRevenueMin = Math.min(...estimates);
-  const expectedRevenueMax = Math.max(...estimates);
-  return {
-    goodId: good.id,
-    name: good.name,
-    seal: good.seal,
-    description: good.description,
-    purchasePrice,
-    expectedRevenueMin,
-    expectedRevenueMax,
-    expectedProfitMin: expectedRevenueMin - purchasePrice,
-    expectedProfitMax: expectedRevenueMax - purchasePrice,
-    demandLabel: tradeDemandLabel(good.id, game.journey.contract.to, destination),
-    purchased: Boolean(existing),
-  };
+    const expectedRevenueMin = Math.min(...estimates);
+    const expectedRevenueMax = Math.max(...estimates);
+    const expectedProfitMin = expectedRevenueMin - purchasePrice;
+    const expectedProfitMax = expectedRevenueMax - purchasePrice;
+    return {
+      goodId: good.id,
+      name: good.name,
+      seal: good.seal,
+      description: good.description,
+      purchasePrice,
+      expectedRevenueMin,
+      expectedRevenueMax,
+      expectedProfitMin,
+      expectedProfitMax,
+      demandLabel: tradeDemandLabel(good.id, contract.to, destination),
+      purchased,
+      recommended: false,
+      marginTone: expectedProfitMax < 0 ? "loss" : expectedProfitMin < 0 ? "uncertain" : "profit",
+    };
+  });
+  const purchasedId = existing?.goodId;
+  const recommendedId = purchasedId ?? [...quoted].sort((left, right) =>
+    (right.expectedProfitMin + right.expectedProfitMax) - (left.expectedProfitMin + left.expectedProfitMax)
+      || right.expectedProfitMax - left.expectedProfitMax,
+  )[0]?.goodId;
+  return quoted
+    .map((offer) => ({ ...offer, recommended: offer.goodId === recommendedId }))
+    .sort((left, right) => Number(right.recommended) - Number(left.recommended));
 }
 
-export function purchaseTradeLot(game: GameState): GameState {
-  const offer = tradeOffer(game);
-  if (!offer || offer.purchased || game.silver < offer.purchasePrice || !game.journey) return game;
+export function tradeOffers(game: GameState): TradeOffer[] {
+  if (game.phase !== "planning" || !game.journey) return [];
+  return tradeOffersForContract(game, game.journey.contract);
+}
+
+export function tradeOffer(game: GameState): TradeOffer | null {
+  const offers = tradeOffers(game);
+  return offers.find((offer) => offer.purchased) ?? offers[0] ?? null;
+}
+
+export function purchaseTradeLot(game: GameState, goodId?: TradeGoodId): GameState {
+  const offers = tradeOffers(game);
+  const offer = goodId ? offers.find((candidate) => candidate.goodId === goodId) : offers[0];
+  if (!offer || offer.purchased || game.journey?.tradeLot || game.silver < offer.purchasePrice || !game.journey) return game;
   return {
     ...game,
     silver: game.silver - offer.purchasePrice,
