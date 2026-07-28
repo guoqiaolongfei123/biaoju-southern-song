@@ -1634,6 +1634,32 @@ export interface StopoverRouteOption {
   pathLabel: string;
 }
 
+export type JourneyDispositionId = "transfer" | "return" | "abandon";
+
+export interface JourneyDispositionOption {
+  id: JourneyDispositionId;
+  seal: string;
+  label: string;
+  eyebrow: string;
+  description: string;
+  destinationCityId: string;
+  delayDays: number;
+  supplyCost: number;
+  compensation: number;
+  tradeRevenue: number;
+  tradeProfit?: number;
+  reputationChange: number;
+  jianghuReputationChange: number;
+  originStandingChange: number;
+  localStandingChange: number;
+  issuerRelationChange: number;
+  rivalId?: string;
+  rivalName?: string;
+  rivalRelationChange?: number;
+  available: boolean;
+  unavailableReason?: string;
+}
+
 function remainingJourneyPlan(game: GameState): RoutePlan | null {
   const journey = game.journey;
   if (!journey || journey.segmentIndex < 0 || journey.segmentIndex >= journey.plan.routeIds.length) return null;
@@ -1704,6 +1730,182 @@ export function replanJourneyAtStopover(game: GameState, planId: string): GameSt
     news: [`【中途重绘】在${cityById(prefixCityIds.at(-1)!).name}改定余程，转走「${option.plan.label}」：${option.pathLabel}。`, ...game.news].slice(0, 6),
   };
   return { ...replanned, currentEvent: createStopoverEvent(replanned) };
+}
+
+function dispositionTradeValue(game: GameState, destinationCityId: string, travelDays: number, conditionScale = 1): number {
+  const lot = game.journey?.tradeLot;
+  if (!lot) return 0;
+  const condition = Math.min(game.convoy.cartHp, game.convoy.cargoIntegrity) * conditionScale;
+  return tradeSaleValue(lot, destinationCityId, game.cities[destinationCityId], Math.max(1, travelDays), condition);
+}
+
+function rivalTransferApproachDays(game: GameState, actorId: string, currentCityId: string): number {
+  const actor = game.worldActors.find((item) => item.id === actorId);
+  if (!actor) return 7;
+  const occupiedRoute = routeById(actor.routeId);
+  const endpointForecasts = [
+    { cityId: actor.fromCityId, occupiedDays: Math.ceil(actor.progress * occupiedRoute.days) },
+    { cityId: actor.toCityId, occupiedDays: Math.ceil((1 - actor.progress) * occupiedRoute.days) },
+  ];
+  const estimates = endpointForecasts.flatMap(({ cityId, occupiedDays }) => {
+    if (cityId === currentCityId) return [occupiedDays];
+    const connection = generateRoutePlans(cityId, currentCityId, game, true)[0];
+    return connection ? [occupiedDays + connection.days] : [];
+  });
+  return Math.max(1, estimates.length ? Math.min(...estimates) : 7);
+}
+
+/**
+ * The three ways to end a contract early are intentionally available only at
+ * a reached waystation. Forecasts contain the exact persistent consequences
+ * so the UI never asks the player to sign a blank deed.
+ */
+export function journeyDispositionOptions(game: GameState): JourneyDispositionOption[] {
+  const journey = game.journey;
+  const offer = stopoverOffer(game);
+  if (!journey || !offer || game.phase !== "event" || game.currentEvent?.kind !== "waystation") return [];
+  const contract = journey.contract;
+  const currentCityId = offer.cityId;
+  const traveledDays = Math.max(1, journey.elapsedDays || game.day - journey.startedDay);
+  const returnDays = Math.max(1, journey.traveledRouteIds.reduce((sum, routeId) => sum + routeById(routeId).days, 0));
+  const returnSupplyCost = Math.max(1, Math.ceil(returnDays * .65));
+  const transferCandidates = (game.rivalBureaus ?? [])
+    .filter((bureau) => bureau.relation >= 5)
+    .map((bureau) => ({ bureau, approachDays: rivalTransferApproachDays(game, bureau.actorId, currentCityId) }))
+    .sort((left, right) => (left.approachDays * 4 - left.bureau.relation) - (right.approachDays * 4 - right.bureau.relation) || right.bureau.reputation - left.bureau.reputation);
+  const transferCandidate = transferCandidates[0];
+  const transferRival = transferCandidate?.bureau;
+  const transferDelayDays = transferCandidate?.approachDays ?? 0;
+  const transferTradeRevenue = dispositionTradeValue(game, currentCityId, traveledDays);
+  const transferFee = transferRival
+    ? Math.max(12, Math.ceil(contract.failurePenalty * .42 - Math.min(14, Math.max(0, transferRival.relation) * .28)))
+    : Math.max(12, Math.ceil(contract.failurePenalty * .42));
+  const transferAvailableSilver = game.silver + transferTradeRevenue;
+  const returnTradeRevenue = dispositionTradeValue(game, contract.from, traveledDays + returnDays);
+  const returnPenalty = Math.min(Math.ceil(contract.failurePenalty * .58), game.silver + returnTradeRevenue);
+  const abandonTradeRevenue = dispositionTradeValue(game, currentCityId, traveledDays, .68);
+  const abandonPenalty = Math.min(contract.failurePenalty, game.silver + abandonTradeRevenue);
+  const tradeProfit = (revenue: number) => journey.tradeLot ? revenue - journey.tradeLot.purchasePrice : undefined;
+  return [
+    {
+      id: "transfer", seal: "托", label: "转请同行续镖", eyebrow: "守住货与约，交出这一程",
+      description: transferRival
+        ? `发急脚请${transferRival.name}遣副队来${cityById(currentCityId).name}接旗，须候 ${transferDelayDays} 日；本号不计成镖，但主镖与托运人的后路仍在。`
+        : "眼下没有肯为风云行接旗的同行，只能先在路上积下交情。",
+      destinationCityId: currentCityId, delayDays: transferDelayDays, supplyCost: 0, compensation: transferFee,
+      tradeRevenue: transferTradeRevenue, tradeProfit: tradeProfit(transferTradeRevenue),
+      reputationChange: -2, jianghuReputationChange: 1, originStandingChange: -1, localStandingChange: 1,
+      issuerRelationChange: 0, rivalId: transferRival?.id, rivalName: transferRival?.name, rivalRelationChange: transferRival ? 7 : undefined,
+      available: Boolean(transferRival && transferAvailableSilver >= transferFee),
+      unavailableReason: !transferRival ? "需有点头相识以上的同行" : transferAvailableSilver < transferFee ? `连同副货回银仍缺 ${transferFee - transferAvailableSilver} 两接手费` : undefined,
+    },
+    {
+      id: "return", seal: "返", label: "原路退回托镖城", eyebrow: "把人货交还，承认此行无力",
+      description: `沿已经踏熟的来路退回${cityById(contract.from).name}，主镖交还托运人；回程不再触发遭遇，但天下仍会推演。`,
+      destinationCityId: contract.from, delayDays: returnDays, supplyCost: returnSupplyCost, compensation: returnPenalty,
+      tradeRevenue: returnTradeRevenue, tradeProfit: tradeProfit(returnTradeRevenue),
+      reputationChange: -5, jianghuReputationChange: -1, originStandingChange: -5, localStandingChange: 0,
+      issuerRelationChange: -1, available: true,
+    },
+    {
+      id: "abandon", seal: "弃", label: "认赔弃镖脱身", eyebrow: "当场收旗，保住余下人马",
+      description: `在${cityById(currentCityId).name}就地结束委托，副货折价变卖、主镖不再护送；不再耗时，但失信最重。`,
+      destinationCityId: currentCityId, delayDays: 0, supplyCost: 0, compensation: abandonPenalty,
+      tradeRevenue: abandonTradeRevenue, tradeProfit: tradeProfit(abandonTradeRevenue),
+      reputationChange: -9, jianghuReputationChange: -4, originStandingChange: -9, localStandingChange: -3,
+      issuerRelationChange: -3, available: true,
+    },
+  ];
+}
+
+/** Resolve a previously forecast early end to the journey into the normal settlement loop. */
+export function resolveJourneyDisposition(game: GameState, dispositionId: JourneyDispositionId): GameState {
+  const journey = game.journey;
+  const option = journeyDispositionOptions(game).find((item) => item.id === dispositionId);
+  if (!journey || !option || !option.available) return game;
+  const contract = journey.contract;
+  const originCityId = contract.from;
+  const localCityId = journey.plan.cityIds[journey.segmentIndex];
+  const issuerFaction = journey.issuerFaction ?? game.cities[originCityId].owner;
+  let next = option.delayDays > 0 ? withWorldAdvance(game, option.delayDays) : game;
+  let cityReputation = changeCityReputation(next.cityReputation, originCityId, option.originStandingChange);
+  if (option.localStandingChange && localCityId !== originCityId) cityReputation = changeCityReputation(cityReputation, localCityId, option.localStandingChange);
+  const relations = option.issuerRelationChange
+    ? { ...next.relations, [issuerFaction]: clampFactionRelation((next.relations[issuerFaction] ?? 0) + option.issuerRelationChange) }
+    : next.relations;
+  const rivalBureaus = option.rivalId ? next.rivalBureaus.map((bureau) => bureau.id === option.rivalId ? {
+    ...bureau,
+    relation: Math.max(-60, Math.min(60, bureau.relation + (option.rivalRelationChange ?? 0))),
+    lastReport: `遣副队赴${cityById(localCityId).name}接过风云行所托的「${contract.cargo}」，已经换旗续向${cityById(contract.to).name}。`,
+    lastReportDay: next.day,
+  } : bureau) : next.rivalBureaus;
+  const shortfall = Math.max(0, option.supplyCost - next.supplies);
+  const usedSupplies = Math.min(next.supplies, option.supplyCost);
+  const dispositionLabel = option.id === "transfer" ? "转托同行" : option.id === "return" ? "退回原城" : "认赔弃镖";
+  const destinationName = cityById(option.destinationCityId).name;
+  const tradeNote = journey.tradeLot
+    ? `随车副货「${TRADE_GOODS[journey.tradeLot.goodId].name}」在${destinationName}售得 ${option.tradeRevenue} 两，${(option.tradeProfit ?? 0) >= 0 ? `净赚 ${option.tradeProfit}` : `折本 ${Math.abs(option.tradeProfit ?? 0)}`} 两`
+    : null;
+  const compensationNote = option.id === "transfer"
+    ? `向${option.rivalName}付接手费 ${option.compensation} 两`
+    : option.compensation < contract.failurePenalty
+      ? `现银与副货回款合计只够赔付 ${option.compensation} 两（原约 ${contract.failurePenalty} 两）`
+      : `按原约赔付 ${option.compensation} 两`;
+  const notes = [
+    option.id === "transfer"
+      ? `急脚往返 ${option.delayDays} 日后，${option.rivalName}换旗下签，主镖仍会继续送往${cityById(contract.to).name}`
+      : option.id === "return"
+        ? `沿来路回走 ${option.delayDays} 日，耗用 ${usedSupplies} 份路粮${shortfall ? `，仍短缺 ${shortfall} 份` : ""}`
+        : `镖队留在${destinationName}收拢人马，主镖责任到此终止`,
+    compensationNote,
+    tradeNote,
+    `商业信用 ${option.reputationChange}，江湖声望 ${option.jianghuReputationChange >= 0 ? "+" : ""}${option.jianghuReputationChange}`,
+    `${cityById(originCityId).name}托运人口碑 ${option.originStandingChange}${option.localStandingChange ? `，${cityById(localCityId).name}本地口碑 ${option.localStandingChange >= 0 ? "+" : ""}${option.localStandingChange}` : ""}`,
+    option.issuerRelationChange ? `${FACTIONS[issuerFaction].name}往来 ${option.issuerRelationChange}` : null,
+    option.rivalRelationChange ? `与${option.rivalName}的同行关系 +${option.rivalRelationChange}` : null,
+  ].filter((note): note is string => Boolean(note));
+  const settlement: Settlement = {
+    grade: option.id === "transfer" ? "转" : option.id === "return" ? "退" : "失镖",
+    outcome: option.id,
+    title: option.id === "transfer" ? "换旗续镖" : option.id === "return" ? "人货退还" : "此镖作罢",
+    summary: option.id === "transfer"
+      ? `风云行在${destinationName}把「${contract.cargo}」郑重转托给${option.rivalName}，没有冒充自己已经交成此镖。`
+      : option.id === "return"
+        ? `风云行退回${destinationName}，把「${contract.cargo}」交还原主，也承担了中途退约的代价。`
+        : `风云行在${destinationName}收旗止步，放弃继续护送「${contract.cargo}」。`,
+    reward: 0,
+    compensation: option.compensation,
+    tradeRevenue: journey.tradeLot ? option.tradeRevenue : undefined,
+    tradeProfit: journey.tradeLot ? option.tradeProfit : undefined,
+    reputationChange: option.reputationChange,
+    notes,
+  };
+  next = {
+    ...next,
+    phase: "settlement",
+    currentCityId: option.destinationCityId,
+    selectedCityId: option.destinationCityId,
+    silver: Math.max(0, next.silver + option.tradeRevenue - option.compensation),
+    supplies: Math.max(0, next.supplies - option.supplyCost),
+    reputation: Math.max(0, next.reputation + option.reputationChange),
+    jianghuReputation: clampJianghuReputation(next.jianghuReputation + option.jianghuReputationChange),
+    cityReputation,
+    relations,
+    rivalBureaus,
+    crew: next.crew.map((member) => journey.crewIds.includes(member.id) ? { ...member, experience: member.experience + 1 } : member),
+    convoy: {
+      ...next.convoy,
+      cargoIntegrity: option.id === "abandon" ? 0 : next.convoy.cargoIntegrity,
+      sealIntact: option.id === "abandon" ? false : next.convoy.sealIntact,
+      morale: Math.max(0, next.convoy.morale - (option.id === "transfer" ? 2 : option.id === "return" ? 5 + shortfall * 4 : 12)),
+      horseStamina: option.id === "return" ? Math.max(0, next.convoy.horseStamina - option.delayDays * 6) : next.convoy.horseStamina,
+    },
+    currentEvent: null,
+    pendingBattle: null,
+    settlement,
+    news: [`【${destinationName}·${dispositionLabel}】${settlement.title}，本号承担 ${option.compensation} 两${option.tradeRevenue ? `，副货回银 ${option.tradeRevenue} 两` : ""}。`, ...next.news].slice(0, 6),
+  };
+  return next;
 }
 
 export function stopoverOffer(game: GameState): StopoverOffer | null {

@@ -406,7 +406,9 @@ export interface BattleResult {
 }
 
 export interface Settlement {
-  grade: "甲" | "乙" | "丙" | "失镖";
+  grade: "甲" | "乙" | "丙" | "转" | "退" | "失镖";
+  /** 缺省为正常抵达；旧存档无需迁移也能按交镖结算展示。 */
+  outcome?: "delivery" | "transfer" | "return" | "abandon";
   title: string;
   summary: string;
   reward: number;

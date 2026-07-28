@@ -25,6 +25,7 @@ import {
   contractInvestigationCost,
   investigateContract,
   investigateRoute,
+  journeyDispositionOptions,
   officeActionOffer,
   purchaseService,
   purchaseTradeLot,
@@ -37,6 +38,7 @@ import {
   routePlanInsight,
   routePlanTravelForecast,
   replanJourneyAtStopover,
+  resolveJourneyDisposition,
   segmentTravelForecast,
   serviceCost,
   setTravelCover,
@@ -77,6 +79,7 @@ import { weatherForCity } from "./core/weatherContent";
 import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from "./core/jianghuContent";
 import { rivalBureauViews, rivalRank } from "./core/rivalContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
+import type { JourneyDispositionId } from "./core/game";
 import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
 import { routeCandidateSeal, type MapRouteCandidate } from "./map/routeComparison";
 import CrewEquipmentPanel from "./components/CrewEquipmentPanel";
@@ -1069,6 +1072,7 @@ function App() {
   const [showHelp, setShowHelp] = useState(false);
   const [savePulse, setSavePulse] = useState(false);
   const [previewRoutePlanId, setPreviewRoutePlanId] = useState<string | null>(null);
+  const [journeyDispositionConfirm, setJourneyDispositionConfirm] = useState<JourneyDispositionId | null>(null);
   const [cityWorkspace, setCityWorkspace] = useState<CityWorkspaceTab>(() => developmentRivalPreviewActive() ? "overview" : "contracts");
   const [crewPreviewGame, setCrewPreviewGame] = useState<GameState | null>(developmentCrewPreviewGame);
   const [battlePreviewConfig] = useState<BattleConfig | null>(developmentBattleFixture);
@@ -1100,6 +1104,10 @@ function App() {
   useEffect(() => {
     sidePanelRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [game?.phase]);
+
+  useEffect(() => {
+    setJourneyDispositionConfirm(null);
+  }, [game?.currentEvent?.id]);
 
   useEffect(() => {
     if (!game) return;
@@ -1246,6 +1254,7 @@ function App() {
   const stopoverForecast = stopoverRouteId ? segmentTravelForecast(game, stopoverRouteId) : null;
   const stopoverLandmark = stopoverRouteId ? primaryLandmarkForRoute(stopoverRouteId) : null;
   const stopoverRoutes = game.currentEvent?.kind === "waystation" ? stopoverRouteOptions(game) : [];
+  const stopoverDispositions = game.currentEvent?.kind === "waystation" ? journeyDispositionOptions(game) : [];
   const currentOffice = game.offices[game.currentCityId];
   const officeOffer = officeActionOffer(game);
   const aidOffer = cityAidOffer(game);
@@ -1903,6 +1912,46 @@ function App() {
                       </button>
                     ))}
                   </div>
+                  {stopoverDispositions.length > 0 && (
+                    <details className="stopover-disposition">
+                      <summary>
+                        <span><small>改道也救不了时</small><b>收旗议约</b></span>
+                        <em>转托同行 · 退回原城 · 认赔弃镖</em>
+                      </summary>
+                      <p>这是终止本趟委托的正式决定。先点一次查看落印状态，再点同一项确认执行；所有回银与损失都已列明。</p>
+                      <div className="stopover-disposition-options">
+                        {stopoverDispositions.map((option) => {
+                          const confirming = journeyDispositionConfirm === option.id;
+                          const costLabel = option.id === "transfer" ? "接手费" : "赔付";
+                          return (
+                            <button
+                              key={option.id}
+                              className={`stopover-disposition-choice disposition-${option.id} ${confirming ? "is-confirming" : ""}`}
+                              disabled={!option.available}
+                              aria-pressed={confirming}
+                              onClick={() => {
+                                if (!confirming) {
+                                  setJourneyDispositionConfirm(option.id);
+                                  return;
+                                }
+                                setJourneyDispositionConfirm(null);
+                                setGame(resolveJourneyDisposition(game, option.id));
+                              }}
+                            >
+                              <i>{option.seal}</i>
+                              <span><small>{option.eyebrow}</small><b>{option.label}</b><em>{option.description}</em></span>
+                              <strong>
+                                <b>{option.delayDays ? `${option.delayDays} 日` : "即办"}</b>
+                                <small>{costLabel} {option.compensation} 两{option.tradeRevenue ? ` · 副货回银 ${option.tradeRevenue}` : ""}</small>
+                                <em>信用 {option.reputationChange} · 江湖 {option.jianghuReputationChange >= 0 ? "+" : ""}{option.jianghuReputationChange}{option.supplyCost ? ` · 粮 ${option.supplyCost}` : ""}</em>
+                                <u>{option.available ? confirming ? "再按一次 · 落印执行" : "先核后果" : option.unavailableReason}</u>
+                              </strong>
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </details>
+                  )}
                 </section>
               )}
               <div className="event-choices">
@@ -1920,8 +1969,8 @@ function App() {
       {game.phase === "settlement" && game.settlement && (
         <div className="modal-layer settlement-layer" role="dialog" aria-modal="true" aria-labelledby="settlement-title">
           <section className="settlement-card">
-            <div className="grade-seal"><span>{game.settlement.grade}</span><small>等镖</small></div>
-            <span className="kicker">抵达 · {cityById(game.currentCityId).name}</span>
+            <div className="grade-seal"><span>{game.settlement.grade}</span><small>{game.settlement.outcome === "transfer" ? "转约" : game.settlement.outcome === "return" ? "退约" : game.settlement.outcome === "abandon" ? "失约" : "等镖"}</small></div>
+            <span className="kicker">{game.settlement.outcome && game.settlement.outcome !== "delivery" ? "收队" : "抵达"} · {cityById(game.currentCityId).name}</span>
             <h2 id="settlement-title">{game.settlement.title}</h2>
             <p>{game.settlement.summary}</p>
             <ul>{game.settlement.notes.map((note) => <li key={note}>{note}</li>)}</ul>
@@ -1931,13 +1980,13 @@ function App() {
               <strong><em>{["新手", "熟手", "老手", "名手"][settlementEquipment.requiredRank]}可用</em><b>已入器械架</b></strong>
             </div>}
             <div className="settlement-rewards">
-              <span><small>实收</small><b>{game.settlement.reward} 两</b></span>
+              <span><small>{game.settlement.outcome && game.settlement.outcome !== "delivery" ? "镖酬" : "实收"}</small><b>{game.settlement.reward} 两</b></span>
               {game.settlement.tradeProfit !== undefined && <span><small>副货 · 回银 {game.settlement.tradeRevenue ?? 0}</small><b>{game.settlement.tradeProfit >= 0 ? "+" : ""}{game.settlement.tradeProfit} 两</b></span>}
-              {game.settlement.compensation > 0 && <span><small>赔付</small><b>-{game.settlement.compensation} 两</b></span>}
+              {game.settlement.compensation > 0 && <span><small>{game.settlement.outcome === "transfer" ? "接手费" : "赔付"}</small><b>-{game.settlement.compensation} 两</b></span>}
               <span><small>信用</small><b>{game.settlement.reputationChange >= 0 ? "+" : ""}{game.settlement.reputationChange}</b></span>
-              <span><small>完成</small><b>{game.completedContracts} 镖</b></span>
+              <span><small>守约记录</small><b>{game.completedContracts} 镖</b></span>
             </div>
-            <button className="primary-button" onClick={() => setGame(continueAfterSettlement(game))}>在此城再开镖榜</button>
+            <button className="primary-button" onClick={() => setGame(continueAfterSettlement(game))}>在此城整顿，再开镖榜</button>
           </section>
         </div>
       )}
@@ -1979,7 +2028,7 @@ function App() {
             <h2 id="help-title">一趟镖，三次取舍</h2>
             <div className="help-steps">
               <div><b>壹</b><h3>看镖</h3><p>比较报酬、时限与封条要求。高价的镖，往往藏着没写在榜上的麻烦。</p></div>
-              <div><b>贰</b><h3>择路</h3><p>快路未必稳；行前可用闲银搭载本地副货，途中货损与目的地城况会把预计利润改成真实盈亏。</p></div>
+              <div><b>贰</b><h3>择路</h3><p>快路未必稳；驿亭可重绘余程，实在无力再走时也能正式转托、退回或认赔收旗。随车副货会按实际落脚城结清。</p></div>
               <div><b>叁</b><h3>守约</h3><p>战斗由镖队自动执行，你只下达开路、围车、护马等阵令；商业信用决定谁敢托付重镖，江湖声望则改变山寨、同行与武人的态度。</p></div>
             </div>
             <p className="help-tip">{game.originId === "linan-guild" ? "建议第一趟接下「十四日抵襄阳」，它会展示南宋边境与城市易主的核心变化。" : `你从${cityById(originById(game.originId).startCityId).name}起号；先比较本地镖榜与路报，再利用出身车马走出自己的第一条商路。`}</p>
