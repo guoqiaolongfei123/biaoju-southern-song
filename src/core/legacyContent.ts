@@ -15,6 +15,7 @@ export interface LegacyStartingModifiers {
   silver: number;
   supplies: number;
   reputation: number;
+  jianghuReputation: number;
   morale: number;
   crewExperience: number;
   localRouteMastery: number;
@@ -30,7 +31,7 @@ export const LEGACY_BOONS: Record<LegacyId, LegacyBoon> = {
   "veteran-token": {
     id: "veteran-token", seal: "人", title: "旧部腰牌", subtitle: "离散镖队留下的点将凭信",
     description: "旧部的招式与规矩写进腰牌，新局最初三人带着更多阅历与更稳的军心归队。",
-    effect: "初始队员阅历 +35、士气 +5",
+    effect: "初始队员阅历 +35、士气 +5、江湖声望 +5",
     unlockEnding: "convoy-ruin", unlockLabel: "达成结局「无人能够出镖」",
   },
   "merchant-credit": {
@@ -91,9 +92,9 @@ export function recordLegacyEnding(legacy: LegacyState, game: GameState): Legacy
 }
 
 export function legacyStartingModifiers(id: LegacyId | null | undefined): LegacyStartingModifiers {
-  if (id === "guarantor-letter") return { silver: 0, supplies: 0, reputation: 5, morale: 0, crewExperience: 0, localRouteMastery: 0 };
-  if (id === "veteran-token") return { silver: 0, supplies: 0, reputation: 0, morale: 5, crewExperience: 35, localRouteMastery: 0 };
-  if (id === "merchant-credit") return { silver: 45, supplies: 3, reputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 0 };
-  if (id === "route-ledger") return { silver: 0, supplies: 0, reputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 1 };
-  return { silver: 0, supplies: 0, reputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 0 };
+  if (id === "guarantor-letter") return { silver: 0, supplies: 0, reputation: 5, jianghuReputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 0 };
+  if (id === "veteran-token") return { silver: 0, supplies: 0, reputation: 0, jianghuReputation: 5, morale: 5, crewExperience: 35, localRouteMastery: 0 };
+  if (id === "merchant-credit") return { silver: 45, supplies: 3, reputation: 0, jianghuReputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 0 };
+  if (id === "route-ledger") return { silver: 0, supplies: 0, reputation: 0, jianghuReputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 1 };
+  return { silver: 0, supplies: 0, reputation: 0, jianghuReputation: 0, morale: 0, crewExperience: 0, localRouteMastery: 0 };
 }

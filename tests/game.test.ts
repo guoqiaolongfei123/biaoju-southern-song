@@ -81,6 +81,7 @@ import { localTradeGood, tradeDemandMultiplier } from "../src/core/tradeContent"
 import { DEFAULT_MARTIAL_ART, MARTIAL_ARTS } from "../src/core/martialContent";
 import { advanceWorldActors, createInitialWorldActors } from "../src/core/worldActorContent";
 import { createLegacyState, recordLegacyEnding } from "../src/core/legacyContent";
+import { jianghuRecruitmentCost } from "../src/core/jianghuContent";
 import { createCrewInjury, injuryForBattleDamage } from "../src/core/injuryContent";
 import { crewMasteryForRole } from "../src/core/crewMasteryContent";
 import type { CrewRole, EquipmentId, GameState } from "../src/core/types";
@@ -275,7 +276,8 @@ describe("镖局核心循环", () => {
     const rival = game.worldActors.find((item) => item.id === "shunfeng-escort")!;
     const rivalEvent = createWorldActorEvent(game, routeId, rival);
     const raced = resolveEvent({ ...game, phase: "event", currentEvent: rivalEvent }, "rival-race");
-    expect(raced.reputation).toBe(game.reputation + 2);
+    expect(raced.reputation).toBe(game.reputation);
+    expect(raced.jianghuReputation).toBe(game.jianghuReputation + 2);
     expect(raced.convoy.horseStamina).toBe(game.convoy.horseStamina - 14);
     expect(raced.convoy.cartHp).toBe(game.convoy.cartHp - 4);
   });
@@ -626,11 +628,11 @@ describe("镖局核心循环", () => {
     expect(injuredGuard.injuryName).toBe("骨伤难行");
   });
 
-  it("v17 存档会为旧名册补上空伤势并升级到 v19", () => {
+  it("v17 存档会为旧名册补上空伤势并升级到 v20", () => {
     const current = createInitialGame(1107);
     const oldCrew = current.crew.map(({ injury: _injury, ...member }) => member);
     const migrated = migrateSavedGame({ ...current, version: 17, crew: oldCrew });
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.crew.every((member) => member.injury === null)).toBe(true);
   });
 
@@ -674,7 +676,7 @@ describe("镖局核心循环", () => {
     delete legacy.recruitPool;
     delete legacy.recruitPoolCityId;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.crew).toHaveLength(5);
     expect(migrated?.activeCrewIds).toHaveLength(3);
     expect(migrated?.recruitPool).toHaveLength(4);
@@ -689,7 +691,7 @@ describe("镖局核心循环", () => {
     const oldOpening = { ...current.contracts[0] } as unknown as Record<string, unknown>;
     for (const key of ["kind", "patron", "inspectionAllowed", "allowedLoss", "confidentiality", "failurePenalty", "complication", "clue", "requirement", "secretKnown"]) delete oldOpening[key];
     const migrated = migrateSavedGame({ ...current, version: 4, contracts: [oldOpening] });
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.contracts[0].kind).toBe("cargo");
     expect(migrated?.contracts[0].complication).toBe("military");
     expect(migrated?.contracts[0].confidentiality).toBe("绝密");
@@ -707,7 +709,7 @@ describe("镖局核心循环", () => {
     delete legacy.recruitPool;
     delete legacy.recruitPoolCityId;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.crew.every((member) => member.originCityId === "linan")).toBe(true);
     expect(migrated?.recruitPool).toHaveLength(4);
   });
@@ -854,7 +856,7 @@ describe("镖局核心循环", () => {
     const legacy = { ...current, version: 8, routeIntel: oldIntel } as unknown as Record<string, unknown>;
     delete legacy.routeStates;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(Object.keys(migrated?.routeStates ?? {})).toHaveLength(ROUTES.length);
     expect(Object.values(migrated?.routeIntel ?? {}).every((intel) => Boolean(intel.knownCondition))).toBe(true);
   });
@@ -942,7 +944,7 @@ describe("镖局核心循环", () => {
       return [id, old];
     }));
     const migrated = migrateSavedGame({ ...current, version: 7, cities: oldCities });
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.cities.linan.statusSinceDay).toBe(1);
     expect(migrated?.cities.linan.playerAidDay).toBe(-99);
   });
@@ -1019,7 +1021,7 @@ describe("镖局核心循环", () => {
     game = recruitCrew(game, candidate.id);
     expect(game.crew.some((member) => member.id === candidate.id)).toBe(true);
     expect(game.recruitPool.some((member) => member.id === candidate.id)).toBe(false);
-    expect(game.silver).toBe(silverBefore - candidate.hiringCost);
+    expect(game.silver).toBe(silverBefore - jianghuRecruitmentCost(candidate.hiringCost, game.jianghuReputation));
 
     const nextCandidate = game.recruitPool[0];
     const paddedCrew = [...game.crew];
@@ -1196,11 +1198,11 @@ describe("镖局核心循环", () => {
     expect(bulwark.convoyProtection).toBeLessThan(1);
   });
 
-  it("v16 存档会把未定职旧队员迁移为可继续培养的 v19 名册", () => {
+  it("v16 存档会把未定职旧队员迁移为可继续培养的 v20 名册", () => {
     const current = createInitialGame(1107);
     const oldCrew = current.crew.map(({ disciplineId: _disciplineId, ...member }) => member);
     const migrated = migrateSavedGame({ ...current, version: 16, crew: oldCrew });
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.crew.every((member) => member.disciplineId === null)).toBe(true);
   });
 
@@ -1216,12 +1218,12 @@ describe("镖局核心循环", () => {
     expect(migrated.crewEquipment["player-leader"].weapon).toBe("jujube-spear");
   });
 
-  it("v18 存档会补齐原制器械谱样并升级到 v19", () => {
+  it("v18 存档会补齐原制器械谱样并升级到 v20", () => {
     const current = createInitialGame(1107);
     const legacy = { ...current, version: 18 } as unknown as Record<string, unknown>;
     delete legacy.equipmentTuning;
     const migrated = migrateSavedGame(legacy)!;
-    expect(migrated.version).toBe(19);
+    expect(migrated.version).toBe(20);
     expect(Object.values(migrated.equipmentTuning).every((level) => level === 0)).toBe(true);
   });
 
@@ -1230,7 +1232,7 @@ describe("镖局核心循环", () => {
     const oldConvoy = { ...current.convoy } as unknown as Record<string, unknown>;
     for (const key of ["wagonId", "horseTeamId", "horseHp", "horseStamina", "upgrades"]) delete oldConvoy[key];
     const migrated = migrateSavedGame({ ...current, version: 6, convoy: oldConvoy });
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.convoy.wagonId).toBe("covered-cart");
     expect(migrated?.convoy.horseTeamId).toBe("draft-pair");
     expect(migrated?.convoy.horseHp).toBe(100);
@@ -1416,7 +1418,7 @@ describe("镖局核心循环", () => {
     const legacy = { ...current, version: 9 } as unknown as Record<string, unknown>;
     delete legacy.cityReputation;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(Object.keys(migrated?.cityReputation ?? {})).toHaveLength(CITIES.length);
     expect(migrated?.cityReputation.linan).toBe(18);
     expect(migrated?.cityReputation.jiankang).toBe(0);
@@ -1441,7 +1443,7 @@ describe("镖局核心循环", () => {
     delete legacy.factionAudienceDay;
     delete legacy.travelPermits;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(Object.keys(migrated?.factionAudienceDay ?? {})).toHaveLength(7);
     expect(Object.keys(migrated?.travelPermits ?? {})).toHaveLength(7);
     expect(migrated?.factionAudienceDay.song).toBe(-99);
@@ -1498,7 +1500,7 @@ describe("镖局核心循环", () => {
     const legacy = { ...current, version: 11 } as unknown as Record<string, unknown>;
     delete legacy.career;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.career).toEqual({ claimedObjectiveIds: [], endingId: null });
   });
 
@@ -1583,6 +1585,7 @@ describe("镖局核心循环", () => {
 
     expect(guaranteed.reputation).toBe(ordinary.reputation + 5);
     expect(veterans.convoy.morale).toBe(ordinary.convoy.morale + 5);
+    expect(veterans.jianghuReputation).toBe(ordinary.jianghuReputation + 5);
     expect(veterans.crew.map((member) => member.experience)).toEqual(ordinary.crew.map((member) => member.experience + 35));
     expect(funded.silver).toBe(ordinary.silver + 45);
     expect(funded.supplies).toBe(ordinary.supplies + 3);
@@ -1595,12 +1598,12 @@ describe("镖局核心循环", () => {
     expect(routed.news[0]).toContain("天下旧路谱");
   });
 
-  it("v15 存档迁移会补为未携带祖业并升级到 v19", () => {
+  it("v15 存档迁移会补为未携带祖业并升级到 v20", () => {
     const current = createInitialGame(1107);
     const oldSave = { ...current, version: 15 } as unknown as Record<string, unknown>;
     delete oldSave.legacyId;
     const migrated = migrateSavedGame(oldSave);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.legacyId).toBeNull();
   });
 
@@ -1609,7 +1612,7 @@ describe("镖局核心循环", () => {
     const legacy = { ...current, version: 12 } as unknown as Record<string, unknown>;
     delete legacy.conduct;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.conduct).toEqual({ investigations: 0, intactSealedDeliveries: 0, escortDeliveries: 0, concealedBorders: 0, peacefulPassages: 0 });
   });
 
@@ -1618,7 +1621,7 @@ describe("镖局核心循环", () => {
     const legacy = { ...current, version: 13 } as unknown as Record<string, unknown>;
     delete legacy.originId;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.originId).toBe("linan-guild");
   });
 
@@ -1632,7 +1635,7 @@ describe("镖局核心循环", () => {
     delete legacyJourney.expectedDestinationOwner;
     const legacy = { ...current, version: 14, journey: legacyJourney } as unknown as Record<string, unknown>;
     const migrated = migrateSavedGame(legacy);
-    expect(migrated?.version).toBe(19);
+    expect(migrated?.version).toBe(20);
     expect(migrated?.journey?.stance).toBe("steady");
     expect(migrated?.journey?.issuerFaction).toBe("song");
     expect(migrated?.journey?.expectedDestinationOwner).toBe("song");
@@ -1674,7 +1677,7 @@ describe("镖局核心循环", () => {
 
     const peaceful = advanceConduct(createInitialGame(1107), { peacefulPassages: 3 });
     expect(borderPassageCost(peaceful, "jin", true)).toBeLessThan(borderPassageCost(createInitialGame(1107), "jin", true));
-    expect(banditTollCost(peaceful)).toBe(19);
+    expect(banditTollCost(peaceful)).toBe(18);
     expect(conductPrinciples(peaceful).filter((principle) => principle.unlocked).map((principle) => principle.title)).toContain("以和开路");
   });
 
@@ -1889,29 +1892,33 @@ describe("护车战规则", () => {
     expect(battleResult(battle)).toMatchObject({ bannerLost: false, bannerRecovered: true, moraleDamage: 10 });
   });
 
-  it("镖旗失守会把士气、信用与沿途消息写回行程", () => {
+  it("镖旗失守会分别伤及商业信用、江湖声望与士气", () => {
     let game = reachOpeningBorder();
     game = resolveEvent(game, "fight");
     const moraleBefore = game.convoy.morale;
     const reputationBefore = game.reputation;
+    const jianghuBefore = game.jianghuReputation;
     game = applyBattleResult(game, {
       outcome: "partial", elapsedHours: 3, leaderDamage: 0, guardLoss: 0, cartDamage: 0, cargoLoss: 0, sealBroken: false,
       guardDamage: {}, horseDamage: 0, bannerLost: true, moraleDamage: 22,
     });
     expect(game.convoy.morale).toBe(Math.max(0, moraleBefore - 32));
-    expect(game.reputation).toBe(reputationBefore - 5);
+    expect(game.reputation).toBe(reputationBefore - 2);
+    expect(game.jianghuReputation).toBe(jianghuBefore - 5);
     expect(game.news[0]).toContain("镖旗失守");
   });
 
-  it("阵斩匪首会提升镖局声望并把斩首结果写入沿途消息", () => {
+  it("阵斩匪首会提升江湖声望但不混入商业信用", () => {
     let game = reachOpeningBorder();
     game = resolveEvent(game, "fight");
     const reputationBefore = game.reputation;
+    const jianghuBefore = game.jianghuReputation;
     game = applyBattleResult(game, {
       outcome: "complete", elapsedHours: 3, leaderDamage: 6, guardLoss: 0, cartDamage: 1, cargoLoss: 0, sealBroken: false,
       guardDamage: {}, horseDamage: 0, enemyLeaderDefeated: true, leaderChallenges: 1,
     });
-    expect(game.reputation).toBe(reputationBefore + 2);
+    expect(game.reputation).toBe(reputationBefore);
+    expect(game.jianghuReputation).toBe(jianghuBefore + 2);
     expect(game.news[0]).toContain("阵斩匪首");
     expect(game.news[0]).toContain("声望 +2");
   });

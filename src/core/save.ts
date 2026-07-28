@@ -16,6 +16,7 @@ import { normalizeWorldActors } from "./worldActorContent";
 import { EQUIPMENT_LIST, equippedCount, normalizeCrewEquipment, normalizeEquipmentStock, normalizeEquipmentTuning } from "./equipmentContent";
 import { LEGACY_BOONS, normalizeLegacyState } from "./legacyContent";
 import { normalizeLeaderProgression } from "./leaderContent";
+import { clampJianghuReputation } from "./jianghuContent";
 
 const DB_NAME = "biaoju-saves";
 const STORE_NAME = "games";
@@ -47,7 +48,7 @@ export async function saveGame(game: GameState): Promise<void> {
 export function migrateSavedGame(value: unknown): GameState | null {
   if (!value || typeof value !== "object") return null;
   const saved = value as Record<string, unknown>;
-  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19) return null;
+  if (saved.version !== 2 && saved.version !== 3 && saved.version !== 4 && saved.version !== 5 && saved.version !== 6 && saved.version !== 7 && saved.version !== 8 && saved.version !== 9 && saved.version !== 10 && saved.version !== 11 && saved.version !== 12 && saved.version !== 13 && saved.version !== 14 && saved.version !== 15 && saved.version !== 16 && saved.version !== 17 && saved.version !== 18 && saved.version !== 19 && saved.version !== 20) return null;
   const legacy = value as unknown as GameState;
   if (!legacy.cities || !legacy.day) return null;
   const originId: OriginId = typeof saved.originId === "string" && saved.originId in ORIGINS ? saved.originId as OriginId : "linan-guild";
@@ -143,11 +144,15 @@ export function migrateSavedGame(value: unknown): GameState | null {
     const oldIntel = legacy.routeIntel?.[route.id];
     return [route.id, oldIntel ? { ...oldIntel, knownCondition: oldIntel.knownCondition ?? fallbackIntel[route.id].knownCondition } : fallbackIntel[route.id]];
   }));
+  const jianghuReputation = clampJianghuReputation(typeof saved.jianghuReputation === "number"
+    ? saved.jianghuReputation
+    : Math.round((typeof saved.reputation === "number" ? saved.reputation : ORIGINS[originId].reputation) * 0.5));
   return {
     ...legacy,
-    version: 19,
+    version: 20,
     originId,
     legacyId,
+    jianghuReputation,
     cities,
     cityReputation,
     factionAudienceDay: { ...createFactionRecord(-99), ...(saved.factionAudienceDay as Record<string, number> | undefined) },

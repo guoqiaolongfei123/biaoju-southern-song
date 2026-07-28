@@ -422,7 +422,7 @@ export interface ConductState {
 }
 
 export interface GameState {
-  version: 19;
+  version: 20;
   seed: number;
   originId: OriginId;
   legacyId: LegacyId | null;
@@ -434,6 +434,7 @@ export interface GameState {
   silver: number;
   supplies: number;
   reputation: number;
+  jianghuReputation: number;
   cityReputation: Record<string, number>;
   relations: Record<FactionId, number>;
   factionAudienceDay: Record<FactionId, number>;

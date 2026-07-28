@@ -61,6 +61,7 @@ import { FORMATION_PROFICIENCIES, createFormationExperience, formationExperience
 import { PLAYER_LEADER_ID, createInitialLeader } from "./leaderContent";
 import { deputyBondRank } from "./deputyBondContent";
 import { CORE_COMBAT_FOCUSES, coreCombatFocusRank } from "./coreCombatFocusContent";
+import { clampJianghuReputation, jianghuRecruitmentCost, jianghuStanding } from "./jianghuContent";
 import { evolveFrontlineCampaign, factionsAtWar, frontlineSituation } from "./frontlineContent";
 import {
   weatherEffectForRoute,
@@ -748,6 +749,7 @@ export function generateContracts(
   localReputation = 0,
   factionRelation = 0,
   conduct?: ConductState,
+  jianghuReputation = 0,
 ): { contracts: Contract[]; rngState: number } {
   const destinations = CITIES.filter((city) => city.id !== cityId && generateRoutePlans(cityId, city.id).length > 0);
   const contracts: Contract[] = includeOpening && cityId === "linan" ? [INITIAL_CONTRACT] : [];
@@ -784,6 +786,7 @@ export function generateContracts(
 
     const deadline = Math.max(4, distanceBonus + template.deadlineBuffer);
 
+    const patronRewardMultiplier = template.patron === "jianghu" ? jianghuStanding(jianghuReputation).contractRewardMultiplier : 1;
     contracts.push({
       id: `c-${day}-${cityId}-${destinationPick.value.id}-${index}-${Math.abs(state)}`,
       from: cityId,
@@ -791,7 +794,7 @@ export function generateContracts(
       title: template.title,
       cargo: template.cargo,
       client: clientPick.value,
-      reward: Math.round((rewardRoll.value + distanceBonus * 8 + template.rewardBonus) * rewardMultiplier),
+      reward: Math.round((rewardRoll.value + distanceBonus * 8 + template.rewardBonus) * rewardMultiplier * patronRewardMultiplier),
       deadline,
       risk: riskLabel(danger + complicationRisk(template.complication)),
       sealRequired: template.sealRequired,
@@ -823,13 +826,14 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
   const routeStates = createInitialRouteStates();
   const openingCount = contractCountForCity(cities[headquartersCityId], true, cityReputation[headquartersCityId]);
   const rulingFaction = cities[headquartersCityId].owner;
-  const generated = generateContracts(headquartersCityId, 1, seed | 0, origin.includeOpeningContract, openingCount, cities[headquartersCityId], cityReputation[headquartersCityId], relations[rulingFaction]);
+  const jianghuReputation = clampJianghuReputation(origin.jianghuReputation + legacy.jianghuReputation);
+  const generated = generateContracts(headquartersCityId, 1, seed | 0, origin.includeOpeningContract, openingCount, cities[headquartersCityId], cityReputation[headquartersCityId], relations[rulingFaction], undefined, jianghuReputation);
   const crew = createInitialCrew().map((member) => ({ ...member, experience: (origin.crewExperience[member.id] ?? member.experience) + legacy.crewExperience }));
   const localEffect = cityStatusEffect(cities[headquartersCityId]);
   const localRecruits = generateRecruitPool(headquartersCityId, cityById(headquartersCityId).tier, 1, generated.rngState, crew.map((member) => member.id), localEffect.recruitQuality + cityStanding(cityReputation[headquartersCityId]).recruitQuality, localEffect.recruitCount);
   const worldActors = createInitialWorldActors();
   const initialGame: GameState = {
-    version: 19,
+    version: 20,
     seed,
     originId,
     legacyId,
@@ -841,6 +845,7 @@ export function createInitialGame(seed = 1107, originId: OriginId = "linan-guild
     silver: origin.silver + legacy.silver,
     supplies: origin.supplies + legacy.supplies,
     reputation: origin.reputation + legacy.reputation,
+    jianghuReputation,
     cityReputation,
     relations,
     factionAudienceDay: createFactionRecord(-99),
@@ -1324,7 +1329,7 @@ export function establishOffice(game: GameState): GameState {
     const localReputation = next.cityReputation[next.currentCityId] ?? 0;
     const count = contractCountForCity(next.cities[next.currentCityId], true, localReputation);
     const localFaction = next.cities[next.currentCityId].owner;
-    const generated = generateContracts(next.currentCityId, next.day, next.rngState, false, count, next.cities[next.currentCityId], localReputation, next.relations[localFaction] ?? 0, next.conduct);
+    const generated = generateContracts(next.currentCityId, next.day, next.rngState, false, count, next.cities[next.currentCityId], localReputation, next.relations[localFaction] ?? 0, next.conduct, next.jianghuReputation);
     next = { ...next, contracts: generated.contracts, rngState: generated.rngState };
   }
   return next;
@@ -1660,7 +1665,7 @@ export function borderCoverForecast(game: GameState, targetFaction: FactionId): 
 }
 
 export function banditTollCost(game: GameState): number {
-  return Math.ceil(22 * principlePassageMultiplier(game));
+  return Math.ceil(22 * principlePassageMultiplier(game) * jianghuStanding(game.jianghuReputation).tollMultiplier);
 }
 
 function currentAndNextRouteIds(game: GameState): string[] {
@@ -1756,8 +1761,8 @@ export function createWorldActorEvent(game: GameState, routeId: string, actor: W
     title: `${actor.name}要争这一程头筹`,
     description: `${actor.name}从${route.name}后方追来，既提议合力压住沿途宵小，又当众夸口会先到下一站。随行镖师都在等掌柜定夺。`,
     choices: [
-      choice("rival-team", "合旗清路", game.supplies < 1 ? "至少需要 1 份补给招待同行" : "耗 1 份补给；信用 +1、士气 +5，并核实今明两程路报", "safe", game.supplies < 1),
-      choice("rival-race", "催马争先", "马力 -14、车况 -4；信用 +2、士气 +3", "risk"),
+      choice("rival-team", "合旗清路", game.supplies < 1 ? "至少需要 1 份补给招待同行" : "耗 1 份补给；江湖声望 +1、士气 +5，并核实今明两程路报", "safe", game.supplies < 1),
+      choice("rival-race", "催马争先", "马力 -14、车况 -4；江湖声望 +2、士气 +3", "risk"),
       choice("traveler-pass", "不争一时先后", "照自己的章程赶路，不受激将", "safe"),
     ],
   };
@@ -1866,7 +1871,7 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
         title: "一队难民请求随镖而行",
         description: "他们说前方有乱兵，也愿意指出一条少有人知的小路。老人和孩子会拖慢脚程，但眼下确实缺一份新情报。",
         choices: [
-          choice("share", "分粮同行", "消耗 3 份补给，获得声望与可靠情报", "safe"),
+          choice("share", "分粮同行", "消耗 3 份补给；商业信用 +1、江湖声望 +3，并获得可靠情报", "safe"),
           choice("decline", "婉拒继续赶路", "不延误，队伍士气略降", "risk"),
         ],
       },
@@ -1947,7 +1952,7 @@ function createEvent(game: GameState, routeId: string, travelersAtDeparture: rea
       description: `十余名剪径客堵住${route.name}，却没有急着杀人。他们的眼睛一直盯着${demandedTarget}。`,
       choices: [
         choice("toll", `付 ${tollCost} 两买路`, `银钱换时间，江湖声望受损${hasPrinciple(game, "peaceful-road") ? "（以和开路）" : ""}`, "safe"),
-        choice("bluff", "报字号压阵", "以镖局声望赌对方退让", "risk"),
+        choice("bluff", "报字号压阵", `以「${jianghuStanding(game.jianghuReputation).label}」旗号震退山寨；江湖越闻名越稳`, "risk"),
         choice("sacrifice", sacrificeLabel, sacrificeHint, "danger"),
         choice("fight", "护住头车，列阵", "进入实时护车战", "danger"),
       ],
@@ -2503,7 +2508,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
       next = {
         ...next,
         supplies: next.supplies - 1,
-        reputation: next.reputation + 1,
+        jianghuReputation: clampJianghuReputation(next.jianghuReputation + 1),
         routeIntel: refreshedIntel(next, currentAndNextRouteIds(next)),
         convoy: { ...next.convoy, morale: Math.min(100, next.convoy.morale + 5) },
         news: [`【两镖合旗】风云行拿出一份路粮招待${actorName}，两队互为前后哨，沿路宵小不敢近车。`, ...next.news].slice(0, 6),
@@ -2511,7 +2516,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
     } else if (choiceId === "rival-race") {
       next = {
         ...next,
-        reputation: next.reputation + 2,
+        jianghuReputation: clampJianghuReputation(next.jianghuReputation + 2),
         convoy: {
           ...next.convoy,
           horseStamina: Math.max(0, next.convoy.horseStamina - 14),
@@ -2654,12 +2659,13 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
   } else if (kind === "bandits" && choiceId === "toll") {
     const tollCost = banditTollCost(next);
     if (next.silver < tollCost) return buildBattle({ ...next, news: ["【山道失算】买路银凑不齐，剪径客已经拔刀。", ...next.news].slice(0, 6) });
-    next = advanceConduct({ ...next, silver: Math.max(0, next.silver - tollCost), reputation: Math.max(0, next.reputation - 1) }, { peacefulPassages: 1 });
+    next = advanceConduct({ ...next, silver: Math.max(0, next.silver - tollCost), jianghuReputation: clampJianghuReputation(next.jianghuReputation - 1) }, { peacefulPassages: 1 });
   } else if (kind === "bandits" && choiceId === "bluff") {
     const roll = randomStep(next.rngState);
     next = { ...next, rngState: roll.state };
-    if (roll.value + next.reputation / 100 < 0.48) return buildBattle(next);
-    next = { ...next, reputation: next.reputation + 2, news: ["【江湖传闻】风云行只报字号，便让一寨人马让开山道。", ...next.news].slice(0, 6) };
+    const standing = jianghuStanding(next.jianghuReputation);
+    if (roll.value + next.jianghuReputation / 180 + standing.bluffBonus < 0.48) return buildBattle(next);
+    next = { ...next, jianghuReputation: clampJianghuReputation(next.jianghuReputation + 2), news: ["【江湖传闻】风云行只报字号，便让一寨人马让开山道；江湖声望 +2。", ...next.news].slice(0, 6) };
   } else if (kind === "bandits" && choiceId === "sacrifice") {
     const contractKind = next.journey!.contract.kind;
     const pursuitLoss = game.currentEvent.battleMode === "pursuit"
@@ -2670,6 +2676,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
     next = {
       ...next,
       reputation: Math.max(0, next.reputation - reputationLoss),
+      jianghuReputation: clampJianghuReputation(next.jianghuReputation - (contractKind === "escort" ? 5 : contractKind === "letter" ? 3 : 2)),
       journey: contractKind === "escort" ? { ...next.journey!, escortHealth: 0 } : next.journey,
       convoy: { ...next.convoy, cargoIntegrity: contractKind === "escort" ? next.convoy.cargoIntegrity : integrity, sealIntact: contractKind === "cargo" ? next.convoy.sealIntact : false, morale: Math.max(0, next.convoy.morale - 12) },
       news: [`【弃镖脱身】风云行为保全人手舍下${contractKind === "escort" ? "护送之人" : contractKind === "letter" ? "密函" : game.currentEvent.battleMode === "pursuit" ? "被夺走的镖匣" : "部分镖货"}，江湖议论纷纷。`, ...next.news].slice(0, 6),
@@ -2683,7 +2690,7 @@ export function resolveEvent(game: GameState, choiceId: string): GameState {
     const cargoDamage = Math.round(rawCargoDamage * cargoDamageMultiplier(next.convoy));
     next = { ...next, supplies: Math.max(0, next.supplies - 2), convoy: { ...next.convoy, cartHp: Math.max(10, next.convoy.cartHp - cartDamage), cargoIntegrity: Math.max(0, next.convoy.cargoIntegrity - cargoDamage), horseHp: Math.max(1, next.convoy.horseHp - 3) } };
   } else if (kind === "refugees" && choiceId === "share") {
-    next = { ...next, supplies: Math.max(0, next.supplies - 3), reputation: next.reputation + 4 };
+    next = { ...next, supplies: Math.max(0, next.supplies - 3), reputation: next.reputation + 1, jianghuReputation: clampJianghuReputation(next.jianghuReputation + 3) };
   } else if (kind === "refugees" && choiceId === "decline") {
     next = { ...next, convoy: { ...next.convoy, morale: Math.max(0, next.convoy.morale - 5) } };
   } else if (kind === "breakdown" && choiceId === "repair") {
@@ -2801,10 +2808,10 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
   });
   const guardsFit = game.journey?.crewIds.filter((id) => (crew.find((member) => member.id === id)?.hp ?? 0) >= 20).length ?? 0;
   const battleNews = [
-    ...(result.enemyLeaderDefeated ? [`【阵斩匪首】${game.pendingBattle.enemyLeaderName ?? "山寨匪首"}逼战失利、伏诛阵前，沿路匪众闻风失胆，镖局声望 +2。`] : (result.leaderChallenges ?? 0) > 0 ? [`【匪首遁走】${game.pendingBattle.enemyLeaderName ?? "山寨匪首"}曾弃旗逼战，终在车队脱阵时趁乱退走。`] : []),
+    ...(result.enemyLeaderDefeated ? [`【阵斩匪首】${game.pendingBattle.enemyLeaderName ?? "山寨匪首"}逼战失利、伏诛阵前，沿路匪众闻风失胆，江湖声望 +2。`] : (result.leaderChallenges ?? 0) > 0 ? [`【匪首遁走】${game.pendingBattle.enemyLeaderName ?? "山寨匪首"}曾弃旗逼战，终在车队脱阵时趁乱退走。`] : []),
     ...((result.cartRepair ?? 0) > 0 ? [`【阵前抢修】车把式在交战中抢回 ${(result.cartRepair ?? 0)} 分车况，镖车得以继续赶路。`] : []),
     ...(result.clientDowned ? [`【活镖失守】${game.pendingBattle.escortClient?.name ?? "护送之人"}重伤倒地，此单已难照原约交割。`] : (result.clientDamage ?? 0) > 0 ? [`【活镖负伤】${game.pendingBattle.escortClient?.name ?? "护送之人"}在阵中受伤 ${(result.clientDamage ?? 0)} 分。`] : []),
-    ...(result.bannerLost ? ["【镖旗失守】风云行旗号被夺，沿途声势与信用一并受挫。"] : result.bannerRecovered ? ["【夺旗复得】夺旗手未能脱阵，众人重新把镖旗立回车前。"] : []),
+    ...(result.bannerLost ? ["【镖旗失守】风云行旗号被夺，商业信用 -2、江湖声望 -5。"] : result.bannerRecovered ? ["【夺旗复得】夺旗手未能脱阵，众人重新把镖旗立回车前。"] : []),
     ...(rankReports.length ? [`【人物晋阶】${rankReports.join("；")}。新的战职、绝活与装备门槛已随名望解开。`] : []),
     ...(leaderExperienceGain > 0 ? [`【总镖头记功】${game.leader.name}${result.leaderContribution ? `「${result.leaderContribution.title}」` : ""}阅历 +${leaderExperienceGain}${leaderFormationReports.length ? `；${leaderFormationReports.join("；")}` : ""}。`] : []),
     ...(martialReports.length ? [`【武学得法】${martialReports.join("；")}。绝技由总镖头自行择机，所用越熟，招路越稳。`] : []),
@@ -2817,7 +2824,8 @@ export function applyBattleResult(game: GameState, result: BattleResult): GameSt
   return completeSegment({
     ...game,
     day: game.day + (result.elapsedHours >= 8 ? 1 : 0),
-    reputation: Math.max(0, game.reputation + (result.enemyLeaderDefeated ? 2 : 0) - (result.bannerLost ? 5 : 0)),
+    reputation: Math.max(0, game.reputation - (result.bannerLost ? 2 : 0)),
+    jianghuReputation: clampJianghuReputation(game.jianghuReputation + (result.enemyLeaderDefeated ? 2 : 0) - (result.bannerLost ? 5 : 0)),
     leader,
     crew,
     journey: game.journey ? {
@@ -2848,7 +2856,7 @@ export function continueAfterSettlement(game: GameState): GameState {
   const standing = cityStanding(localReputation);
   const contractCount = contractCountForCity(cityState, majorOffice, localReputation);
   const localFaction = cityState.owner;
-  const generated = generateContracts(game.currentCityId, game.day, game.rngState, false, contractCount, cityState, localReputation, game.relations[localFaction] ?? 0, game.conduct);
+  const generated = generateContracts(game.currentCityId, game.day, game.rngState, false, contractCount, cityState, localReputation, game.relations[localFaction] ?? 0, game.conduct, game.jianghuReputation);
   const cityEffect = cityStatusEffect(cityState);
   const localRecruits = generateRecruitPool(game.currentCityId, cityById(game.currentCityId).tier, game.day, generated.rngState, game.crew.map((member) => member.id), cityEffect.recruitQuality + standing.recruitQuality, cityEffect.recruitCount);
   return {
@@ -3105,12 +3113,13 @@ export function setCrewDiscipline(game: GameState, crewId: string, disciplineId:
 export function recruitCrew(game: GameState, memberId: string): GameState {
   if (game.phase !== "map" || game.recruitPoolCityId !== game.currentCityId || game.crew.length >= CREW_CAPACITY) return game;
   const candidate = game.recruitPool.find((member) => member.id === memberId);
-  if (!candidate || game.silver < candidate.hiringCost || game.crew.some((member) => member.id === memberId)) return game;
+  const hiringCost = candidate ? jianghuRecruitmentCost(candidate.hiringCost, game.jianghuReputation) : 0;
+  if (!candidate || game.silver < hiringCost || game.crew.some((member) => member.id === memberId)) return game;
   return {
     ...game,
-    silver: game.silver - candidate.hiringCost,
+    silver: game.silver - hiringCost,
     crew: [...game.crew, { ...candidate }],
     recruitPool: game.recruitPool.filter((member) => member.id !== memberId),
-    news: [`【${cityById(game.currentCityId).name}延才】${candidate.role}${candidate.name}入了风云行名册，先付身契银 ${candidate.hiringCost} 两。`, ...game.news].slice(0, 6),
+    news: [`【${cityById(game.currentCityId).name}延才】${candidate.role}${candidate.name}入了风云行名册，先付身契银 ${hiringCost} 两${hiringCost < candidate.hiringCost ? `（旗号相请，省 ${candidate.hiringCost - hiringCost} 两）` : ""}。`, ...game.news].slice(0, 6),
   };
 }

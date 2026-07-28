@@ -69,6 +69,7 @@ import { EQUIPMENT } from "./core/equipmentContent";
 import { deputyBondRank } from "./core/deputyBondContent";
 import { frontlineSituation } from "./core/frontlineContent";
 import { weatherForCity } from "./core/weatherContent";
+import { jianghuRecruitmentCost, jianghuStanding, jianghuStandingProgress } from "./core/jianghuContent";
 import { clearSave, loadGame, loadLegacy, saveGame, saveLegacy } from "./core/save";
 import type { BattleConfig, CareerEndingId, Contract, CoreCombatFocusId, CrewDisciplineId, CrewMasteryId, EquipmentId, FactionId, GameState, LegacyId, LegacyState, MartialArtId, OriginId, RoutePlan } from "./core/types";
 import { routeCandidateSeal, type MapRouteCandidate } from "./map/routeComparison";
@@ -758,6 +759,7 @@ function NewGameScreen({ legacy, onBack, onBegin }: { legacy: LegacyState; onBac
           <span><small>现银</small><b>{origin.silver} 两</b></span>
           <span><small>补给</small><b>{origin.supplies} 份</b></span>
           <span><small>信用</small><b>{origin.reputation}</b></span>
+          <span><small>江湖</small><b>{origin.jianghuReputation}</b></span>
           <span><small>镖车</small><b>{WAGONS[origin.wagonId].name}</b></span>
           <span><small>马队</small><b>{HORSE_TEAMS[origin.horseTeamId].name}</b></span>
         </div>
@@ -1070,6 +1072,8 @@ function App() {
   const selectedLocalReputation = game.cityReputation?.[selectedCity.id] ?? 0;
   const selectedStanding = cityStanding(selectedLocalReputation);
   const selectedStandingProgress = cityStandingProgress(selectedLocalReputation);
+  const currentJianghuStanding = jianghuStanding(game.jianghuReputation);
+  const currentJianghuProgress = jianghuStandingProgress(game.jianghuReputation);
   const selectedFaction = FACTIONS[selectedState.owner];
   const selectedFactionRelation = game.relations[selectedState.owner] ?? 0;
   const selectedFactionStanding = factionStanding(selectedFactionRelation);
@@ -1138,7 +1142,8 @@ function App() {
         <div className="resources" aria-label="镖局资源">
           <span><small>银两</small><b>{game.silver}</b></span>
           <span><small>补给</small><b>{game.supplies}</b></span>
-          <span><small>信用</small><b>{game.reputation}</b></span>
+          <span title="商业信用：决定高价值委托、车马器械与行栈对你的信任"><small>信用</small><b>{game.reputation}</b></span>
+          <span className="resource-jianghu" title={`${currentJianghuStanding.label}：${currentJianghuStanding.description}`}><small>江湖</small><b>{game.jianghuReputation}</b></span>
         </div>
         <div className="header-actions">
           <span className={`save-state ${savePulse ? "is-saving" : ""}`}>{savePulse ? "已落档" : "自动存档"}</span>
@@ -1402,11 +1407,27 @@ function App() {
                   </div>
                   <LeaderProgressionPanel game={game} onChange={setGame} />
                   <CrewEquipmentPanel game={game} onChange={setGame} />
+                  <section className="jianghu-standing-card" aria-label={`江湖声望 ${game.jianghuReputation}，${currentJianghuStanding.label}`}>
+                    <i>{currentJianghuStanding.seal}</i>
+                    <div className="jianghu-standing-copy">
+                      <small>江湖名帖 · 旗号所至</small>
+                      <b>{currentJianghuStanding.label}<em>{game.jianghuReputation} / 100</em></b>
+                      <p>{currentJianghuStanding.description}</p>
+                      <span><i><em style={{ width: `${currentJianghuProgress.progress}%` }} /></i>{currentJianghuProgress.nextMin === null ? "已至最高声名" : `再得 ${currentJianghuProgress.remaining} 声望进下一阶`}</span>
+                    </div>
+                    <dl>
+                      <div><dt>报字号</dt><dd>+{Math.round(currentJianghuStanding.bluffBonus * 100)}%</dd></div>
+                      <div><dt>买路银</dt><dd>-{Math.round((1 - currentJianghuStanding.tollMultiplier) * 100)}%</dd></div>
+                      <div><dt>延才身契</dt><dd>-{Math.round(currentJianghuStanding.recruitmentDiscount * 100)}%</dd></div>
+                      <div><dt>江湖镖赏</dt><dd>+{Math.round((currentJianghuStanding.contractRewardMultiplier - 1) * 100)}%</dd></div>
+                    </dl>
+                  </section>
                   <div className="section-rule"><span>本地可招 · {cityById(game.recruitPoolCityId).name}</span></div>
                   <div className="recruitment-ledger">
                     {game.recruitPool.length ? game.recruitPool.map((member) => {
                       const rank = crewRank(member.experience);
-                      const cannotHire = game.crew.length >= CREW_CAPACITY || game.silver < member.hiringCost;
+                      const hiringCost = jianghuRecruitmentCost(member.hiringCost, game.jianghuReputation);
+                      const cannotHire = game.crew.length >= CREW_CAPACITY || game.silver < hiringCost;
                       return (
                         <article key={member.id} className={`recruit-card role-${member.role}`}>
                           <span className="recruit-role-seal">{member.role.slice(0, 1)}</span>
@@ -1414,7 +1435,7 @@ function App() {
                           <p><strong>{member.specialty}</strong>{member.biography}</p>
                           <div className="recruit-terms"><span>体魄 {member.maxHp}</span><span>脚钱 {member.wage}两/镖</span><span>阅历 {member.experience}</span></div>
                           <button disabled={cannotHire} onClick={() => setGame(recruitCrew(game, member.id))}>
-                            {game.crew.length >= CREW_CAPACITY ? "名册已满" : game.silver < member.hiringCost ? `尚缺 ${member.hiringCost - game.silver} 两` : `延入镖局 · ${member.hiringCost} 两`}
+                            {game.crew.length >= CREW_CAPACITY ? "名册已满" : game.silver < hiringCost ? `尚缺 ${hiringCost - game.silver} 两` : <>延入镖局 · {hiringCost} 两{hiringCost < member.hiringCost && <del>{member.hiringCost}</del>}</>}
                           </button>
                         </article>
                       );
@@ -1695,7 +1716,8 @@ function App() {
             <div className="ending-record">
               <span><small>经营日数</small><b>{game.day} 日</b></span>
               <span><small>办妥镖单</small><b>{game.completedContracts} 镖</b></span>
-              <span><small>江湖信用</small><b>{game.reputation}</b></span>
+              <span><small>商业信用</small><b>{game.reputation}</b></span>
+              <span><small>江湖声望</small><b>{game.jianghuReputation}</b></span>
               <span><small>在营网点</small><b>{Object.values(game.offices).filter((office) => office.active).length} 处</b></span>
             </div>
             {endingLegacy && (
@@ -1721,7 +1743,7 @@ function App() {
             <div className="help-steps">
               <div><b>壹</b><h3>看镖</h3><p>比较报酬、时限与封条要求。高价的镖，往往藏着没写在榜上的麻烦。</p></div>
               <div><b>贰</b><h3>择路</h3><p>快路未必稳；行前可用闲银搭载本地副货，途中货损与目的地城况会把预计利润改成真实盈亏。</p></div>
-              <div><b>叁</b><h3>守约</h3><p>战斗由镖队自动执行，你只下达开路、围车、护马等阵令；战职、老手绝活与装备会改变自动应对，目的地易主后还须重新决定交割对象。</p></div>
+              <div><b>叁</b><h3>守约</h3><p>战斗由镖队自动执行，你只下达开路、围车、护马等阵令；商业信用决定谁敢托付重镖，江湖声望则改变山寨、同行与武人的态度。</p></div>
             </div>
             <p className="help-tip">{game.originId === "linan-guild" ? "建议第一趟接下「十四日抵襄阳」，它会展示南宋边境与城市易主的核心变化。" : `你从${cityById(originById(game.originId).startCityId).name}起号；先比较本地镖榜与路报，再利用出身车马走出自己的第一条商路。`}</p>
             <button className="primary-button" onClick={() => { setShowHelp(false); setGame({ ...game, tutorialSeen: true }); }}>明白，开门见客</button>
